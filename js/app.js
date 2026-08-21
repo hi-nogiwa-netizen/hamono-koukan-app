@@ -1092,8 +1092,11 @@ async function init() {
 
 init();
 
+// オフラインキャッシュ(Service Worker)は、更新が反映されない不具合の原因になっていたため
+// 廃止した。もし既に登録されている端末があれば、app/sw.js 側の後片付け処理で自動的に
+// 解除・キャッシュ削除される。ここでは新しく登録しない。
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((reg) => reg.unregister());
   });
 }

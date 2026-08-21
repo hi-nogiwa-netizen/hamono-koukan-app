@@ -1,52 +1,22 @@
-// シンプルなアプリシェルキャッシュ。オフライン時でも画面の骨組みだけは開けるようにする。
-// Realtime Database通信やTesseract.jsのモデルはネットワークが必要。
+// このアプリは、PWAのオフラインキャッシュ機能（Service Worker）の利用をやめることにした。
+// 更新するたびに古いキャッシュが端末に残ってしまい、最新版が反映されない問題が
+// 繰り返し起きたため。このファイルは「後片付け専用」で、
+// 既に登録されてしまっている端末のService Workerを自動的に解除し、
+// 溜まっていたキャッシュも削除したうえで、ページを最新の状態に読み込み直す。
+// （app/js/app.js からも、新しくService Workerを登録する処理は削除済み）
 
-const CACHE_NAME = "hamono-shell-v2";
-const SHELL_FILES = [
-  "./",
-  "./index.html",
-  "./css/style.css",
-  "./js/app.js",
-  "./js/db.js",
-  "./js/ocr.js",
-  "./js/priority.js",
-  "./js/masterData.js",
-  "./js/firebase-config.js",
-  "./manifest.json",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
-];
-
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES)).catch(() => {})
-  );
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
-});
-
-// ネットワーク優先：まず最新を取りに行き、取れた分はキャッシュを更新しておく。
-// オフラインで取得できなかった時だけ、キャッシュ済みの古い内容にフォールバックする。
-// （更新が反映されないという不具合を避けるため、キャッシュ優先ではなくこちらにしている）
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return; // CDN/Realtime Database通信はそのまま素通し
-
-  event.respondWith(
-    fetch(event.request)
-      .then((res) => {
-        const clone = res.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        return res;
-      })
-      .catch(() => caches.match(event.request))
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+      await self.registration.unregister();
+      const clientsList = await self.clients.matchAll({ type: "window" });
+      clientsList.forEach((client) => client.navigate(client.url));
+    })()
   );
 });

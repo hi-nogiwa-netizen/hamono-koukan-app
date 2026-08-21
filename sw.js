@@ -1,7 +1,7 @@
 // シンプルなアプリシェルキャッシュ。オフライン時でも画面の骨組みだけは開けるようにする。
 // Realtime Database通信やTesseract.jsのモデルはネットワークが必要。
 
-const CACHE_NAME = "hamono-shell-v1";
+const CACHE_NAME = "hamono-shell-v2";
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -33,21 +33,20 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+// ネットワーク優先：まず最新を取りに行き、取れた分はキャッシュを更新しておく。
+// オフラインで取得できなかった時だけ、キャッシュ済みの古い内容にフォールバックする。
+// （更新が反映されないという不具合を避けるため、キャッシュ優先ではなくこちらにしている）
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return; // CDN/Realtime Database通信はそのまま素通し
 
   event.respondWith(
-    caches.match(event.request).then(
-      (cached) =>
-        cached ||
-        fetch(event.request)
-          .then((res) => {
-            const clone = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-            return res;
-          })
-          .catch(() => cached)
-    )
+    fetch(event.request)
+      .then((res) => {
+        const clone = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        return res;
+      })
+      .catch(() => caches.match(event.request))
   );
 });

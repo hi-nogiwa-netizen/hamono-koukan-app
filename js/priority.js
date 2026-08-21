@@ -1,4 +1,5 @@
 import { PRIORITY_THRESHOLDS } from "./masterData.js";
+import { isOperating, currentOperatingSegmentEnd, addOperatingSeconds } from "./schedule.js";
 
 // 残り寿命の割合からレベル判定（danger=至急交換 / warning=まもなく交換 / ok=正常）
 export function levelFor(ratio) {
@@ -13,14 +14,26 @@ export const LEVEL_LABEL = {
   ok: "正常",
 };
 
-// products: [{id, name, machines:[...], dailyQty, tools:[{no, process, maker, model, processCount, life}]}]
+function machineName(machine) {
+  return typeof machine === "string" ? machine : machine.name;
+}
+
+function machineCycleTimeSec(machine) {
+  return typeof machine === "string" ? null : machine.cycleTimeSec || null;
+}
+
+// products: [{id, name, machines:[{name, cycleTimeSec}], dailyQty, tools:[{no, process, maker, model, processCount, life}]}]
 // latestScans: Map<`${productId}::${machine}`, {capturedAt, capturedBy, readings:{toolNo:count}}>
-export function computePriorityList(products, latestScans) {
+// now: 現在時刻（テスト用に差し替え可能）
+export function computePriorityList(products, latestScans, now = new Date()) {
   const rows = [];
+  const currentShiftEnd = isOperating(now) ? currentOperatingSegmentEnd(now) : null;
 
   for (const product of products) {
-    for (const machine of product.machines) {
-      const scan = latestScans.get(`${product.id}::${machine}`);
+    for (const machine of product.machines || []) {
+      const name = machineName(machine);
+      const cycleTimeSec = machineCycleTimeSec(machine);
+      const scan = latestScans.get(`${product.id}::${name}`);
       if (!scan) continue;
 
       for (const tool of product.tools) {
@@ -33,10 +46,27 @@ export function computePriorityList(products, latestScans) {
         const dailyConsumption = (product.dailyQty || 0) * (tool.processCount || 1);
         const remainingAfterToday = remaining - dailyConsumption;
 
+        // サイクルタイムが設定されている機械は、稼働カレンダー（1直/2直・土日休み）を
+        // 踏まえて「あと何秒で寿命に到達するか」を計算する。
+        let timeEstimate = null;
+        if (cycleTimeSec) {
+          const remainingCycles = Math.max(0, remaining) / (tool.processCount || 1);
+          const secondsToExhaust = remainingCycles * cycleTimeSec;
+          const exhaustAt = addOperatingSeconds(now, secondsToExhaust);
+          timeEstimate = {
+            exhaustAt,
+            secondsToExhaust,
+            withinCurrentShift: currentShiftEnd ? exhaustAt.getTime() <= currentShiftEnd.getTime() : false,
+          };
+        }
+
+        let level = levelFor(ratio);
+        if (timeEstimate && timeEstimate.withinCurrentShift) level = "danger";
+
         rows.push({
           productId: product.id,
           productName: product.name,
-          machine,
+          machine: name,
           toolNo: tool.no,
           process: tool.process,
           maker: tool.maker,
@@ -45,8 +75,9 @@ export function computePriorityList(products, latestScans) {
           count: numCount,
           remaining,
           ratio,
-          level: levelFor(ratio),
+          level,
           willRunOutToday: remainingAfterToday < 0,
+          timeEstimate,
           capturedAt: scan.capturedAt,
           capturedBy: scan.capturedBy,
         });

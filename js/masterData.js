@@ -6,7 +6,14 @@ export const SEED_PRODUCTS = [
   {
     id: "NN-32YB2",
     name: "NN-32YB2（刃物交換指示表）",
-    machines: ["NC55", "NC56", "NC68", "NC69", "NC84", "NC85"],
+    machines: [
+      { name: "NC55", cycleTimeSec: null },
+      { name: "NC56", cycleTimeSec: null },
+      { name: "NC68", cycleTimeSec: null },
+      { name: "NC69", cycleTimeSec: null },
+      { name: "NC84", cycleTimeSec: null },
+      { name: "NC85", cycleTimeSec: null },
+    ], // cycleTimeSec（1サイクルの秒数）はマスタ管理タブから設定可能
     dailyQty: 400, // 1日あたりの生産数（設定数）。出社時残寿命の目安計算に使用。
     tools: [
       { no: "T01", process: "外径荒", maker: "住友", model: "CNMG120405N-GU(AC603M)", processCount: 1, life: 500 },

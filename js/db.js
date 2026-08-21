@@ -89,11 +89,21 @@ export async function ensureSeedData() {
   }
 }
 
+// 古いデータ（machinesが文字列配列 ["NC55", ...]）を
+// 新形式（[{name, cycleTimeSec}, ...]）に変換して読み込む。
+// サイクルタイム機能を追加する前のデータとの互換性のため。
+function normalizeProduct(product) {
+  const machines = (product.machines || []).map((m) =>
+    typeof m === "string" ? { name: m, cycleTimeSec: null } : m
+  );
+  return { ...product, machines };
+}
+
 export function subscribeProducts(onChange) {
   const db = getDb();
   return onValue(ref(db, "products"), (snap) => {
     const val = snap.val() || {};
-    const products = Object.keys(val).map((id) => ({ id, ...val[id] }));
+    const products = Object.keys(val).map((id) => normalizeProduct({ id, ...val[id] }));
     onChange(products);
   });
 }
@@ -110,11 +120,19 @@ export async function deleteProduct(productId) {
 
 // ---- 担当者マスタ（担当者ごとの担当製品・担当NC機） ----
 
+// 古いデータ（productId・machinesを直接持つ、1人1製品だけの形式）を
+// 新形式（assignments: [{productId, machines}, ...]、1人が複数製品を担当できる）に変換する。
+function normalizeStaff(staff) {
+  if (Array.isArray(staff.assignments)) return staff;
+  const assignments = staff.productId ? [{ productId: staff.productId, machines: staff.machines || [] }] : [];
+  return { ...staff, assignments };
+}
+
 export function subscribeStaff(onChange) {
   const db = getDb();
   return onValue(ref(db, "staff"), (snap) => {
     const val = snap.val() || {};
-    const staff = Object.keys(val).map((id) => ({ id, ...val[id] }));
+    const staff = Object.keys(val).map((id) => normalizeStaff({ id, ...val[id] }));
     onChange(staff);
   });
 }

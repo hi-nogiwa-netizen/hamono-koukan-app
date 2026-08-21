@@ -1,6 +1,7 @@
 import * as db from "./db.js";
 import { computePriorityList, summarize } from "./priority.js";
 import { fileToCanvas, warpToRect, sliceGridCells, recognizeGrid } from "./ocr.js";
+import { formatDuration, formatDateTime } from "./schedule.js";
 
 let products = [];
 let latestScans = new Map();
@@ -71,13 +72,25 @@ function renderDashboard() {
   listEl.innerHTML = rows
     .map((r) => {
       const pct = Math.max(0, Math.round(r.ratio * 100));
+      const te = r.timeEstimate;
+      const shiftFlag = te
+        ? te.withinCurrentShift
+          ? '<span class="today-flag">⏰ 今のシフト中に交換が必要</span>'
+          : '<span class="ok-flag">✅ 今のシフト中は交換不要</span>'
+        : r.willRunOutToday
+          ? '<span class="today-flag">本日中に寿命到達の恐れ</span>'
+          : "";
+      const timeLine = te
+        ? `<div class="time-estimate">⏱ 残り約${escapeHtml(formatDuration(te.secondsToExhaust))}（目安 ${escapeHtml(formatDateTime(te.exhaustAt))}）</div>`
+        : "";
       return `
       <div class="priority-card ${r.level}">
         <div class="rank-badge">${r.rank}</div>
         <div class="info">
           <div class="title">${escapeHtml(r.toolNo)}　${escapeHtml(r.process)}</div>
           <div class="sub">${escapeHtml(r.productName)} / ${escapeHtml(r.machine)} / ${escapeHtml(r.maker)} ${escapeHtml(r.model)}</div>
-          ${r.willRunOutToday ? '<span class="today-flag">本日中に寿命到達の恐れ</span>' : ""}
+          ${timeLine}
+          ${shiftFlag}
         </div>
         <div class="metrics">
           <div class="ratio">残り${pct}%</div>
@@ -128,6 +141,16 @@ function populateProductSelect() {
   if (products.some((p) => p.id === prevVal)) sel.value = prevVal;
 }
 
+// 担当者に設定された担当製品(1つ目)を、製品欄の初期値として使う。
+// 担当者は複数の製品を担当できるので、これはあくまで初期選択であり、
+// 製品欄はいつでも手動で変更できる。
+function applyStaffProductDefault(staff) {
+  const firstAssignment = staff && staff.assignments && staff.assignments[0];
+  if (firstAssignment && firstAssignment.productId && products.some((p) => p.id === firstAssignment.productId)) {
+    document.getElementById("product-select").value = firstAssignment.productId;
+  }
+}
+
 // 担当者選択：登録済みの担当者一覧＋「その他（自由入力）」を選択肢にする。
 // 選んだ担当者に担当製品が設定されていれば、製品欄を自動でそちらに合わせる。
 function populateStaffSelect() {
@@ -153,10 +176,7 @@ function populateStaffSelect() {
     if (savedOther && !otherInput.value) otherInput.value = savedOther;
   } else {
     otherInput.classList.add("hidden");
-    const staff = staffList.find((s) => s.id === sel.value);
-    if (staff && staff.productId && products.some((p) => p.id === staff.productId)) {
-      document.getElementById("product-select").value = staff.productId;
-    }
+    applyStaffProductDefault(staffList.find((s) => s.id === sel.value));
   }
 }
 
@@ -164,6 +184,17 @@ function getSelectedStaff() {
   const staffId = document.getElementById("staff-select").value;
   if (!staffId || staffId === OTHER_STAFF_VALUE) return null;
   return staffList.find((s) => s.id === staffId) || null;
+}
+
+// 現在選ばれている担当者・製品の組み合わせから、担当NC機の絞り込みリストを返す。
+// 担当者未選択、担当製品にその製品の登録がない、登録があっても機械が未指定（＝全機対象）の
+// 場合は null（絞り込みなし＝全機表示）を返す。
+function getMachineFilterForSelection() {
+  const staff = getSelectedStaff();
+  if (!staff || !staff.assignments) return null;
+  const productId = document.getElementById("product-select").value;
+  const assignment = staff.assignments.find((a) => a.productId === productId);
+  return assignment && assignment.machines && assignment.machines.length ? assignment.machines : null;
 }
 
 function currentCapturedByName() {
@@ -196,10 +227,7 @@ function wireStaffSelect() {
       return;
     }
     otherInput.classList.add("hidden");
-    const staff = staffList.find((s) => s.id === staffSelect.value);
-    if (staff && staff.productId && products.some((p) => p.id === staff.productId)) {
-      document.getElementById("product-select").value = staff.productId;
-    }
+    applyStaffProductDefault(staffList.find((s) => s.id === staffSelect.value));
   });
 
   otherInput.addEventListener("input", () => {
@@ -256,12 +284,16 @@ function updateOcrProgress(done, total) {
   document.getElementById("ocr-progress-text").textContent = `${done} / ${total}`;
 }
 
+function machineNames(product) {
+  return (product.machines || []).map((m) => (typeof m === "string" ? m : m.name));
+}
+
 async function runOcr() {
   showCaptureStep("ocr");
   updateOcrProgress(0, 1);
   const product = capture.product;
   const rowLabels = product.tools.map((t) => t.no);
-  const colLabels = product.machines;
+  const colLabels = machineNames(product);
   const straightW = colLabels.length * 160;
   const straightH = rowLabels.length * 70;
 
@@ -301,8 +333,9 @@ function buildEntryTable(ocrResults, machineFilter) {
   const resultMap = new Map();
   if (ocrResults) ocrResults.forEach((r) => resultMap.set(`${r.row}:${r.col}`, r));
 
+  const allMachines = machineNames(product);
   const useFilter = !ocrResults && machineFilter && machineFilter.length;
-  const machines = useFilter ? product.machines.filter((m) => machineFilter.includes(m)) : product.machines;
+  const machines = useFilter ? allMachines.filter((m) => machineFilter.includes(m)) : allMachines;
 
   const headHtml = `<thead><tr><th>工具</th>${machines.map((m) => `<th>${escapeHtml(m)}</th>`).join("")}</tr></thead>`;
 
@@ -310,7 +343,7 @@ function buildEntryTable(ocrResults, machineFilter) {
     .map((tool, rIdx) => {
       const cells = machines
         .map((machine) => {
-          const cIdx = product.machines.indexOf(machine);
+          const cIdx = allMachines.indexOf(machine);
           const ocr = resultMap.get(`${rIdx}:${cIdx}`);
           const prevScan = latestScans.get(`${product.id}::${machine}`);
           const prevVal = prevScan && prevScan.readings ? prevScan.readings[tool.no] : undefined;
@@ -349,8 +382,7 @@ function startManualEntry() {
   capture.capturedBy = name;
   capture.ocrResults = null;
 
-  const staff = getSelectedStaff();
-  const machineFilter = staff && staff.machines && staff.machines.length ? staff.machines : null;
+  const machineFilter = getMachineFilterForSelection();
 
   setReviewStepMode("manual");
   buildEntryTable(null, machineFilter);
@@ -484,9 +516,49 @@ function buildAdminProductCard(product) {
 
   const idField = mkField("製品ID（変更不可）", product.id, { readonly: true });
   const nameField = mkField("製品名", product.name);
-  const machinesField = mkField("機械名（カンマ区切り）", (product.machines || []).join(","));
   const dailyField = mkField("1日あたり生産数", product.dailyQty ?? 400, { type: "number" });
-  [idField, nameField, machinesField, dailyField].forEach((f) => card.appendChild(f.wrap));
+  [idField, nameField, dailyField].forEach((f) => card.appendChild(f.wrap));
+
+  const machinesWrap = document.createElement("div");
+  machinesWrap.className = "tools-editor";
+  const machinesLabel = document.createElement("label");
+  machinesLabel.className = "field-label";
+  machinesLabel.textContent = "対象NC機・サイクルタイム";
+  machinesWrap.appendChild(machinesLabel);
+  const machinesHeader = document.createElement("div");
+  machinesHeader.className = "machine-row-header";
+  machinesHeader.innerHTML = "<div>NC機名</div><div>サイクルタイム(秒)</div><div></div>";
+  machinesWrap.appendChild(machinesHeader);
+
+  const machineRows = [];
+  function addMachineRow(machine) {
+    const row = document.createElement("div");
+    row.className = "machine-row-grid";
+    const entry = {
+      nameInp: mkCell(machine ? (typeof machine === "string" ? machine : machine.name) : ""),
+      cycleInp: mkCell(machine && typeof machine !== "string" && machine.cycleTimeSec != null ? machine.cycleTimeSec : "", "number"),
+    };
+    entry.cycleInp.placeholder = "任意";
+    const delBtn = document.createElement("button");
+    delBtn.className = "icon-btn";
+    delBtn.textContent = "✕";
+    delBtn.addEventListener("click", () => {
+      row.remove();
+      const idx = machineRows.indexOf(entry);
+      if (idx >= 0) machineRows.splice(idx, 1);
+    });
+    row.append(entry.nameInp, entry.cycleInp, delBtn);
+    machinesWrap.appendChild(row);
+    machineRows.push(entry);
+  }
+  (product.machines || []).forEach(addMachineRow);
+  card.appendChild(machinesWrap);
+
+  const addMachineBtn = document.createElement("button");
+  addMachineBtn.className = "secondary-btn";
+  addMachineBtn.textContent = "＋ NC機を追加";
+  addMachineBtn.addEventListener("click", () => addMachineRow(null));
+  card.appendChild(addMachineBtn);
 
   const toolsWrap = document.createElement("div");
   toolsWrap.className = "tools-editor";
@@ -538,7 +610,12 @@ function buildAdminProductCard(product) {
     const updated = {
       id: product.id,
       name: nameField.input.value.trim() || product.id,
-      machines: machinesField.input.value.split(",").map((s) => s.trim()).filter(Boolean),
+      machines: machineRows
+        .map((r) => ({
+          name: r.nameInp.value.trim(),
+          cycleTimeSec: r.cycleInp.value === "" ? null : Number(r.cycleInp.value) || null,
+        }))
+        .filter((m) => m.name),
       dailyQty: Number(dailyField.input.value) || 0,
       tools: rows
         .map((r) => ({
@@ -583,6 +660,9 @@ function renderAdmin() {
   products.forEach((product) => container.appendChild(buildAdminProductCard(product)));
 }
 
+// 担当者は複数の製品を担当できる。assignments は
+// [{ productId, machines: [担当NC機名,...] }, ...] の配列。
+// machinesが空配列の場合は「その製品の全機が対象」の意味になる。
 function buildAdminStaffCard(staffMember) {
   const card = document.createElement("div");
   card.className = "admin-product-card";
@@ -594,48 +674,84 @@ function buildAdminStaffCard(staffMember) {
   const nameField = mkField("氏名", staffMember.name || "");
   card.appendChild(nameField.wrap);
 
-  const productWrap = document.createElement("div");
-  productWrap.className = "admin-field";
-  const productLabel = document.createElement("label");
-  productLabel.textContent = "担当製品";
-  const productSelect = document.createElement("select");
-  productSelect.innerHTML =
-    '<option value="">未設定</option>' +
-    products.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
-  if (staffMember.productId) productSelect.value = staffMember.productId;
-  productWrap.append(productLabel, productSelect);
-  card.appendChild(productWrap);
+  const assignmentsLabel = document.createElement("label");
+  assignmentsLabel.className = "field-label";
+  assignmentsLabel.textContent = "担当製品・担当NC機（複数登録できます）";
+  card.appendChild(assignmentsLabel);
 
-  const machinesWrap = document.createElement("div");
-  machinesWrap.className = "admin-field";
-  const machinesLabel = document.createElement("label");
-  machinesLabel.textContent = "担当NC機（複数選択可。何も選ばなければ全機が対象になります）";
-  const checkboxGroup = document.createElement("div");
-  checkboxGroup.className = "checkbox-group";
-  machinesWrap.append(machinesLabel, checkboxGroup);
-  card.appendChild(machinesWrap);
+  const assignmentsWrap = document.createElement("div");
+  card.appendChild(assignmentsWrap);
 
-  function renderMachineCheckboxes() {
-    const product = products.find((p) => p.id === productSelect.value);
-    const machineList = product ? product.machines || [] : [];
-    const selected = new Set(staffMember.machines || []);
-    checkboxGroup.innerHTML = "";
-    if (!machineList.length) {
-      checkboxGroup.innerHTML = '<span class="hint-text">担当製品を選ぶとNC機の一覧が表示されます</span>';
-      return;
+  const assignmentEntries = [];
+
+  function addAssignmentBlock(assignment) {
+    const block = document.createElement("div");
+    block.className = "assignment-block";
+
+    const top = document.createElement("div");
+    top.className = "assignment-block-top";
+    const productSelect = document.createElement("select");
+    productSelect.innerHTML =
+      '<option value="">製品を選択</option>' +
+      products.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+    if (assignment && assignment.productId) productSelect.value = assignment.productId;
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "icon-btn";
+    removeBtn.textContent = "✕";
+    top.append(productSelect, removeBtn);
+    block.appendChild(top);
+
+    const checkboxGroup = document.createElement("div");
+    checkboxGroup.className = "checkbox-group";
+    block.appendChild(checkboxGroup);
+
+    const machineHint = document.createElement("p");
+    machineHint.className = "hint-text";
+    machineHint.textContent = "担当NC機（何も選ばなければその製品の全機が対象になります）";
+    block.insertBefore(machineHint, checkboxGroup);
+
+    function renderMachines() {
+      const product = products.find((p) => p.id === productSelect.value);
+      const machineList = product ? machineNames(product) : [];
+      const selected = new Set((assignment && assignment.machines) || []);
+      checkboxGroup.innerHTML = "";
+      if (!machineList.length) {
+        checkboxGroup.innerHTML = '<span class="hint-text">製品を選ぶとNC機の一覧が表示されます</span>';
+        return;
+      }
+      machineList.forEach((m) => {
+        const label = document.createElement("label");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = m;
+        cb.checked = selected.has(m);
+        label.append(cb, document.createTextNode(m));
+        checkboxGroup.appendChild(label);
+      });
     }
-    machineList.forEach((m) => {
-      const label = document.createElement("label");
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.value = m;
-      cb.checked = selected.has(m);
-      label.append(cb, document.createTextNode(m));
-      checkboxGroup.appendChild(label);
+    renderMachines();
+    productSelect.addEventListener("change", renderMachines);
+
+    const entry = { productSelect, checkboxGroup };
+    removeBtn.addEventListener("click", () => {
+      block.remove();
+      const idx = assignmentEntries.indexOf(entry);
+      if (idx >= 0) assignmentEntries.splice(idx, 1);
     });
+
+    assignmentsWrap.appendChild(block);
+    assignmentEntries.push(entry);
   }
-  renderMachineCheckboxes();
-  productSelect.addEventListener("change", renderMachineCheckboxes);
+
+  const existingAssignments =
+    staffMember.assignments && staffMember.assignments.length ? staffMember.assignments : [null];
+  existingAssignments.forEach(addAssignmentBlock);
+
+  const addAssignmentBtn = document.createElement("button");
+  addAssignmentBtn.className = "secondary-btn";
+  addAssignmentBtn.textContent = "＋ 担当製品を追加";
+  addAssignmentBtn.addEventListener("click", () => addAssignmentBlock(null));
+  card.appendChild(addAssignmentBtn);
 
   const actions = document.createElement("div");
   actions.className = "admin-actions";
@@ -649,12 +765,17 @@ function buildAdminStaffCard(staffMember) {
       showToast("氏名を入力してください", true);
       return;
     }
-    const checkedMachines = Array.from(checkboxGroup.querySelectorAll("input:checked")).map((cb) => cb.value);
+    const assignments = assignmentEntries
+      .map((e) => ({
+        productId: e.productSelect.value,
+        machines: Array.from(e.checkboxGroup.querySelectorAll("input:checked")).map((cb) => cb.value),
+      }))
+      .filter((a) => a.productId);
     try {
       if (staffMember.id) {
-        await db.saveStaff({ id: staffMember.id, name, productId: productSelect.value || "", machines: checkedMachines });
+        await db.saveStaff({ id: staffMember.id, name, assignments });
       } else {
-        const created = await db.addStaff({ name, productId: productSelect.value || "", machines: checkedMachines });
+        const created = await db.addStaff({ name, assignments });
         staffMember.id = created.id;
       }
       showToast("保存しました");
@@ -695,12 +816,12 @@ function wireAdminEvents() {
   document.getElementById("btn-admin-new-product").addEventListener("click", () => {
     const id = prompt("新しい製品ID（英数字、後から変更不可）を入力してください");
     if (!id || !id.trim()) return;
-    const blank = { id: id.trim(), name: id.trim(), machines: ["NC1"], dailyQty: 400, tools: [] };
+    const blank = { id: id.trim(), name: id.trim(), machines: [{ name: "NC1", cycleTimeSec: null }], dailyQty: 400, tools: [] };
     document.getElementById("admin-product-list").prepend(buildAdminProductCard(blank));
   });
 
   document.getElementById("btn-admin-new-staff").addEventListener("click", () => {
-    const blank = { id: null, name: "", productId: "", machines: [] };
+    const blank = { id: null, name: "", assignments: [] };
     document.getElementById("admin-staff-list").prepend(buildAdminStaffCard(blank));
   });
 

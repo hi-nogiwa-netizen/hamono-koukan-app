@@ -143,6 +143,19 @@
   </button>
 </nav>
 
+<div id="exchange-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3 id="exchange-modal-title">交換した方を選択</h3>
+    <label class="field-label">担当者</label>
+    <select id="exchange-staff-select" class="big-select"></select>
+    <input id="exchange-other-input" type="text" class="text-input hidden" placeholder="お名前を入力" />
+    <div class="row-buttons">
+      <button id="exchange-modal-cancel" class="secondary-btn">キャンセル</button>
+      <button id="exchange-modal-confirm" class="primary-btn">交換済みにする</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>

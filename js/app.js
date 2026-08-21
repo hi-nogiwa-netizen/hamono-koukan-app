@@ -106,35 +106,88 @@ function renderDashboard() {
     .join("");
 }
 
-// 「交換した」ボタン：その工具・機械の使用数だけを0に戻して送信する。
+// 「交換した」ボタン：担当者を一覧から選んでもらい、その工具・機械の使用数だけを0に戻して送信する。
 // 同じ機械の他の工具の値は、直前の最新値をそのまま引き継ぐ（消えないようにする）。
-async function handleExchange(productId, machine, toolNo) {
-  const lastName = localStorage.getItem("otherStaffName") || "";
-  const name = prompt(`${toolNo}（${machine}）を交換済みにします。\nお名前を入力してください`, lastName);
-  if (name === null) return; // キャンセル
-  if (!name.trim()) {
-    showToast("お名前が未入力のため中止しました", true);
-    return;
-  }
-  localStorage.setItem("otherStaffName", name.trim());
 
-  const scan = latestScans.get(`${productId}::${machine}`);
-  const readings = { ...(scan && scan.readings ? scan.readings : {}) };
-  readings[toolNo] = 0;
+let pendingExchange = null;
 
-  try {
-    await db.submitScan({ productId, machine, capturedBy: name.trim(), readings });
-    showToast(`${toolNo} を交換済みにしました`);
-  } catch (e) {
-    showToast("更新に失敗しました: " + e.message, true);
+function openExchangeModal(productId, machine, toolNo) {
+  pendingExchange = { productId, machine, toolNo };
+  document.getElementById("exchange-modal-title").textContent = `${toolNo}（${machine}）を交換済みにする`;
+
+  const sel = document.getElementById("exchange-staff-select");
+  const otherInput = document.getElementById("exchange-other-input");
+  const options = ['<option value="">選択してください</option>']
+    .concat(staffList.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`))
+    .concat([`<option value="${OTHER_STAFF_VALUE}">その他（自由入力）</option>`]);
+  sel.innerHTML = options.join("");
+
+  const savedStaffId = localStorage.getItem("selectedStaffId");
+  if (savedStaffId && (staffList.some((s) => s.id === savedStaffId) || savedStaffId === OTHER_STAFF_VALUE)) {
+    sel.value = savedStaffId;
   }
+  if (sel.value === OTHER_STAFF_VALUE) {
+    otherInput.classList.remove("hidden");
+    otherInput.value = localStorage.getItem("otherStaffName") || "";
+  } else {
+    otherInput.classList.add("hidden");
+  }
+
+  document.getElementById("exchange-modal").classList.remove("hidden");
+}
+
+function closeExchangeModal() {
+  pendingExchange = null;
+  document.getElementById("exchange-modal").classList.add("hidden");
+}
+
+function wireExchangeModal() {
+  const sel = document.getElementById("exchange-staff-select");
+  const otherInput = document.getElementById("exchange-other-input");
+
+  sel.addEventListener("change", () => {
+    otherInput.classList.toggle("hidden", sel.value !== OTHER_STAFF_VALUE);
+  });
+
+  document.getElementById("exchange-modal-cancel").addEventListener("click", closeExchangeModal);
+
+  document.getElementById("exchange-modal-confirm").addEventListener("click", async () => {
+    if (!pendingExchange) return;
+    const staff = staffList.find((s) => s.id === sel.value);
+    const name = sel.value === OTHER_STAFF_VALUE ? otherInput.value.trim() : staff ? staff.name : "";
+    if (!name) {
+      showToast("担当者を選択（または入力）してください", true);
+      return;
+    }
+    if (sel.value === OTHER_STAFF_VALUE) {
+      localStorage.setItem("otherStaffName", name);
+    }
+    localStorage.setItem("selectedStaffId", sel.value);
+
+    const { productId, machine, toolNo } = pendingExchange;
+    const scan = latestScans.get(`${productId}::${machine}`);
+    const readings = { ...(scan && scan.readings ? scan.readings : {}) };
+    readings[toolNo] = 0;
+
+    const confirmBtn = document.getElementById("exchange-modal-confirm");
+    confirmBtn.disabled = true;
+    try {
+      await db.submitScan({ productId, machine, capturedBy: name, readings });
+      showToast(`${toolNo} を交換済みにしました`);
+      closeExchangeModal();
+    } catch (e) {
+      showToast("更新に失敗しました: " + e.message, true);
+    } finally {
+      confirmBtn.disabled = false;
+    }
+  });
 }
 
 function wirePriorityListEvents() {
   document.getElementById("priority-list").addEventListener("click", (evt) => {
     const btn = evt.target.closest(".exchange-btn");
     if (!btn) return;
-    handleExchange(btn.dataset.product, btn.dataset.machine, btn.dataset.tool);
+    openExchangeModal(btn.dataset.product, btn.dataset.machine, btn.dataset.tool);
   });
 }
 
@@ -1070,6 +1123,7 @@ async function init() {
   wireAuthGate();
   wireStaffSelect();
   wirePriorityListEvents();
+  wireExchangeModal();
 
   if (!db.isReady()) {
     document.getElementById("setup-notice").classList.remove("hidden");

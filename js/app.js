@@ -508,6 +508,28 @@ function mkCell(value, type = "text") {
   return inp;
 }
 
+// Excelなどからコピーした表（タブ区切り。カンマ区切りにも対応）を工具データに変換する。
+// 列の順：工具No・加工工程・メーカー・型式・工程数・寿命
+function parseBulkToolText(text) {
+  return text
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const cells = line.includes("\t") ? line.split("\t") : line.split(",");
+      const get = (i) => (cells[i] !== undefined ? cells[i].trim() : "");
+      return {
+        no: get(0),
+        process: get(1),
+        maker: get(2),
+        model: get(3),
+        processCount: Number(get(4)) || 1,
+        life: Number(get(5)) || 0,
+      };
+    })
+    .filter((t) => t.no);
+}
+
 function buildAdminProductCard(product) {
   const card = document.createElement("div");
   card.className = "admin-product-card";
@@ -602,6 +624,31 @@ function buildAdminProductCard(product) {
   addRowBtn.addEventListener("click", () => addToolRow(null));
   card.appendChild(addRowBtn);
 
+  const bulkWrap = document.createElement("div");
+  bulkWrap.className = "bulk-paste-wrap";
+  const bulkLabel = document.createElement("label");
+  bulkLabel.className = "field-label";
+  bulkLabel.textContent =
+    "Excel等から貼り付けて一括追加（列の順：工具No・加工工程・メーカー・型式・工程数・寿命）";
+  const bulkTextarea = document.createElement("textarea");
+  bulkTextarea.className = "bulk-paste-textarea";
+  bulkTextarea.placeholder = "例（タブ区切りでそのまま貼り付けてください）:\nT01\t外径荒\t住友\tCNMG120405N-GU(AC603M)\t1\t500";
+  const bulkAddBtn = document.createElement("button");
+  bulkAddBtn.className = "secondary-btn";
+  bulkAddBtn.textContent = "貼り付けた内容を一括追加";
+  bulkAddBtn.addEventListener("click", () => {
+    const parsed = parseBulkToolText(bulkTextarea.value);
+    if (!parsed.length) {
+      showToast("貼り付けられた内容から工具を読み取れませんでした", true);
+      return;
+    }
+    parsed.forEach((t) => addToolRow(t));
+    bulkTextarea.value = "";
+    showToast(`${parsed.length}件の工具を追加しました（保存を押すまで確定しません）`);
+  });
+  bulkWrap.append(bulkLabel, bulkTextarea, bulkAddBtn);
+  card.appendChild(bulkWrap);
+
   const actions = document.createElement("div");
   actions.className = "admin-actions";
 
@@ -638,6 +685,31 @@ function buildAdminProductCard(product) {
     }
   });
 
+  const dupBtn = document.createElement("button");
+  dupBtn.className = "secondary-btn";
+  dupBtn.textContent = "複製";
+  dupBtn.addEventListener("click", () => {
+    const newId = prompt(
+      `「${product.name}」の内容（NC機・工具一覧）をコピーして新しい製品を作ります。\n新しい製品ID（英数字、後から変更不可）を入力してください`
+    );
+    if (!newId || !newId.trim()) return;
+    if (products.some((p) => p.id === newId.trim())) {
+      showToast("そのIDは既に使われています", true);
+      return;
+    }
+    const clone = {
+      id: newId.trim(),
+      name: `${product.name}のコピー`,
+      machines: (product.machines || []).map((m) =>
+        typeof m === "string" ? { name: m, cycleTimeSec: null } : { ...m }
+      ),
+      dailyQty: product.dailyQty ?? 400,
+      tools: (product.tools || []).map((t) => ({ ...t })),
+    };
+    document.getElementById("admin-product-list").prepend(buildAdminProductCard(clone));
+    showToast("複製しました。内容を確認して「保存」を押してください");
+  });
+
   const delBtn = document.createElement("button");
   delBtn.className = "secondary-btn";
   delBtn.textContent = "製品を削除";
@@ -651,7 +723,7 @@ function buildAdminProductCard(product) {
     }
   });
 
-  actions.append(saveBtn, delBtn);
+  actions.append(saveBtn, dupBtn, delBtn);
   card.appendChild(actions);
   return card;
 }

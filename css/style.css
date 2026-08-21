@@ -335,8 +335,21 @@ body {
 .tool-row-grid input { padding: 6px; font-size: 12.5px; border: 1px solid var(--border); border-radius: 6px; width: 100%; }
 .tool-row-header { display: grid; grid-template-columns: 60px 1fr 1fr 1fr 60px 80px 34px; gap: 4px; font-size: 10.5px; color: var(--text-muted); margin-bottom: 4px; }
 .icon-btn { background: none; border: none; color: var(--danger); font-size: 16px; cursor: pointer; }
-.admin-actions { display: flex; gap: 8px; margin-top: 10px; }
-.admin-actions button { flex: 1; }
+.admin-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.admin-actions button { flex: 1; min-width: 90px; }
+.bulk-paste-wrap { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.bulk-paste-textarea {
+  width: 100%;
+  min-height: 70px;
+  padding: 8px;
+  font-size: 12.5px;
+  font-family: monospace;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  resize: vertical;
+  box-sizing: border-box;
+}
 
 .tab-bar {
   position: fixed;

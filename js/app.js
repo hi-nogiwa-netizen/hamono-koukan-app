@@ -87,20 +87,55 @@ function renderDashboard() {
         : "";
       return `
       <div class="priority-card ${r.level}">
-        <div class="rank-badge">${r.rank}</div>
-        <div class="info">
-          <div class="title">${escapeHtml(r.toolNo)}　${escapeHtml(r.process)}</div>
-          <div class="sub">${escapeHtml(r.productName)} / ${escapeHtml(r.machine)} / ${escapeHtml(r.maker)} ${escapeHtml(r.model)}</div>
-          ${timeLine}
-          ${shiftFlag}
+        <div class="priority-card-main">
+          <div class="rank-badge">${r.rank}</div>
+          <div class="info">
+            <div class="title">${escapeHtml(r.toolNo)}　${escapeHtml(r.process)}</div>
+            <div class="sub">${escapeHtml(r.productName)} / ${escapeHtml(r.machine)} / ${escapeHtml(r.maker)} ${escapeHtml(r.model)}</div>
+            ${timeLine}
+            ${shiftFlag}
+          </div>
+          <div class="metrics">
+            <div class="ratio">残り${pct}%</div>
+            <div class="counts">${r.count} / ${r.life}</div>
+          </div>
         </div>
-        <div class="metrics">
-          <div class="ratio">残り${pct}%</div>
-          <div class="counts">${r.count} / ${r.life}</div>
-        </div>
+        <button class="exchange-btn" data-product="${escapeHtml(r.productId)}" data-machine="${escapeHtml(r.machine)}" data-tool="${escapeHtml(r.toolNo)}">✅ 交換した</button>
       </div>`;
     })
     .join("");
+}
+
+// 「交換した」ボタン：その工具・機械の使用数だけを0に戻して送信する。
+// 同じ機械の他の工具の値は、直前の最新値をそのまま引き継ぐ（消えないようにする）。
+async function handleExchange(productId, machine, toolNo) {
+  const lastName = localStorage.getItem("otherStaffName") || "";
+  const name = prompt(`${toolNo}（${machine}）を交換済みにします。\nお名前を入力してください`, lastName);
+  if (name === null) return; // キャンセル
+  if (!name.trim()) {
+    showToast("お名前が未入力のため中止しました", true);
+    return;
+  }
+  localStorage.setItem("otherStaffName", name.trim());
+
+  const scan = latestScans.get(`${productId}::${machine}`);
+  const readings = { ...(scan && scan.readings ? scan.readings : {}) };
+  readings[toolNo] = 0;
+
+  try {
+    await db.submitScan({ productId, machine, capturedBy: name.trim(), readings });
+    showToast(`${toolNo} を交換済みにしました`);
+  } catch (e) {
+    showToast("更新に失敗しました: " + e.message, true);
+  }
+}
+
+function wirePriorityListEvents() {
+  document.getElementById("priority-list").addEventListener("click", (evt) => {
+    const btn = evt.target.closest(".exchange-btn");
+    if (!btn) return;
+    handleExchange(btn.dataset.product, btn.dataset.machine, btn.dataset.tool);
+  });
 }
 
 function escapeHtml(value) {
@@ -1034,6 +1069,7 @@ async function init() {
   wireAdminEvents();
   wireAuthGate();
   wireStaffSelect();
+  wirePriorityListEvents();
 
   if (!db.isReady()) {
     document.getElementById("setup-notice").classList.remove("hidden");

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>刃物交換指示システム</title>
+<meta name="theme-color" content="#1e3a5f" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="刃物交換指示" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div id="auth-gate" class="auth-gate">
+  <div class="auth-gate-card">
+    <h2>🔒 ログイン</h2>
+    <p class="hint-text">工場共通のパスコードを入力してください。</p>
+    <input id="passcode-input" type="password" inputmode="numeric" class="text-input" placeholder="パスコード" autocomplete="current-password" />
+    <button id="btn-passcode-submit" class="primary-btn">入る</button>
+    <p id="passcode-error" class="gate-error hidden"></p>
+  </div>
+</div>
+
+<header class="app-header">
+  <h1>刃物交換指示システム</h1>
+  <div id="connection-badge" class="badge badge-muted">接続確認中…</div>
+</header>
+
+<main id="app-root">
+
+  <!-- Firebase未設定時の案内 -->
+  <section id="setup-notice" class="view hidden">
+    <div class="card warning-card">
+      <h2>初期設定が必要です</h2>
+      <p><code>app/js/firebase-config.js</code> に Firebase プロジェクトの設定値がまだ入力されていません。</p>
+      <p>同梱の <code>README.md</code> の手順に従って、Firebaseプロジェクトを作成し、設定値を貼り付けてください。</p>
+    </div>
+  </section>
+
+  <!-- ダッシュボード -->
+  <section id="view-dashboard" class="view">
+    <div class="summary-row" id="summary-row"></div>
+    <div id="priority-list" class="priority-list">
+      <p class="empty-hint">読み込み中…</p>
+    </div>
+  </section>
+
+  <!-- 撮影 -->
+  <section id="view-capture" class="view hidden">
+    <div id="capture-step-select" class="capture-step">
+      <h2>1. 製品を選択して入力方法を選ぶ</h2>
+      <select id="product-select" class="big-select"></select>
+      <label class="field-label">記入者名</label>
+      <input id="capturedBy-input" type="text" class="text-input" placeholder="例：山際" />
+      <button id="btn-take-photo" class="primary-btn">📷 写真で読み取る</button>
+      <button id="btn-manual-entry" class="secondary-btn">⌨️ 表に直接入力する</button>
+      <input id="file-input" type="file" accept="image/*" capture="environment" class="hidden-input" />
+    </div>
+
+    <div id="capture-step-corners" class="capture-step hidden">
+      <h2>2. 使用数を書く欄の四隅をタップ</h2>
+      <p class="hint-text">左上 → 右上 → 右下 → 左下 の順に、数字を書く表の四隅をタップしてください。（工具名・型式などの列は含めない）</p>
+      <div class="canvas-wrap">
+        <canvas id="tap-canvas"></canvas>
+      </div>
+      <div class="row-buttons">
+        <button id="btn-corners-reset" class="secondary-btn">やり直す</button>
+        <button id="btn-corners-confirm" class="primary-btn" disabled>この範囲で認識する</button>
+      </div>
+    </div>
+
+    <div id="capture-step-ocr" class="capture-step hidden">
+      <h2>3. 数字を認識中…</h2>
+      <div class="progress-wrap">
+        <div id="ocr-progress-bar" class="progress-bar"></div>
+      </div>
+      <p id="ocr-progress-text" class="hint-text">0 / 0</p>
+    </div>
+
+    <div id="capture-step-review" class="capture-step hidden">
+      <h2 id="review-step-title">4. 内容を確認・修正して送信</h2>
+      <p id="review-step-hint" class="hint-text">AIによる読み取り結果です。数字が違う場合は必ず修正してください。信頼度が低いセルは赤枠で表示されます。</p>
+      <div class="table-scroll">
+        <table id="review-table" class="review-table"></table>
+      </div>
+      <div class="row-buttons">
+        <button id="btn-review-cancel" class="secondary-btn">キャンセル</button>
+        <button id="btn-review-submit" class="primary-btn">この内容で送信する</button>
+      </div>
+    </div>
+
+    <div id="capture-step-done" class="capture-step hidden">
+      <div class="card success-card">
+        <h2>送信しました</h2>
+        <p>優先順位一覧に反映されました。</p>
+        <button id="btn-done-restart" class="primary-btn">続けて撮影する</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 履歴 -->
+  <section id="view-history" class="view hidden">
+    <h2>撮影履歴</h2>
+    <div id="history-list" class="history-list"></div>
+  </section>
+
+  <!-- マスタ管理 -->
+  <section id="view-admin" class="view hidden">
+    <h2>製品・工具マスタ管理</h2>
+    <div class="row-buttons">
+      <button id="btn-admin-new-product" class="secondary-btn">＋ 製品を追加</button>
+      <button id="btn-signout" class="secondary-btn">ログアウト</button>
+    </div>
+    <div id="admin-product-list" class="admin-product-list"></div>
+  </section>
+
+</main>
+
+<nav class="tab-bar">
+  <button class="tab-btn active" data-view="dashboard">
+    <span class="tab-icon">📋</span><span>優先順位</span>
+  </button>
+  <button class="tab-btn" data-view="capture">
+    <span class="tab-icon">📷</span><span>撮影</span>
+  </button>
+  <button class="tab-btn" data-view="history">
+    <span class="tab-icon">🕘</span><span>履歴</span>
+  </button>
+  <button class="tab-btn" data-view="admin">
+    <span class="tab-icon">⚙️</span><span>マスタ</span>
+  </button>
+</nav>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

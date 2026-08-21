@@ -42,11 +42,33 @@
 
   <!-- ダッシュボード -->
   <section id="view-dashboard" class="view">
+    <div id="whoami-bar" class="whoami-bar">
+      <span id="whoami-label"></span>
+      <button id="btn-whoami-change" class="link-btn">変更</button>
+    </div>
+    <label id="my-only-toggle-wrap" class="toggle-wrap hidden">
+      <input id="my-only-toggle" type="checkbox" />
+      自分の担当分だけ表示
+    </label>
     <div class="summary-row" id="summary-row"></div>
     <div id="priority-list" class="priority-list">
       <p class="empty-hint">読み込み中…</p>
     </div>
   </section>
+
+  <!-- 初回・変更時の担当者選択 -->
+  <div id="whoami-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <h3>あなたを選択してください</h3>
+      <p class="hint-text">選ぶと、優先順位タブにあなたの担当分だけを表示できるようになります。</p>
+      <select id="whoami-select" class="big-select"></select>
+      <input id="whoami-other-input" type="text" class="text-input hidden" placeholder="お名前を入力" />
+      <div class="row-buttons">
+        <button id="whoami-modal-skip" class="secondary-btn">あとで</button>
+        <button id="whoami-modal-confirm" class="primary-btn">決定</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 撮影 -->
   <section id="view-capture" class="view hidden">

@@ -6,6 +6,7 @@ import { formatDuration, formatDateTime } from "./schedule.js";
 let products = [];
 let latestScans = new Map();
 let staffList = [];
+let myOnlyToggleInitialized = false;
 
 const OTHER_STAFF_VALUE = "__other__";
 
@@ -54,8 +55,57 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
 
 // ---------- ダッシュボード ----------
 
+// 「自分」として選ばれている担当者を返す（未設定・その他の場合は null）
+function getMyStaff() {
+  const myId = localStorage.getItem("selectedStaffId");
+  if (!myId || myId === OTHER_STAFF_VALUE) return null;
+  return staffList.find((s) => s.id === myId) || null;
+}
+
+function filterRowsForStaff(rows, staff) {
+  if (!staff || !staff.assignments || !staff.assignments.length) return rows;
+  return rows.filter((r) => {
+    const assignment = staff.assignments.find((a) => a.productId === r.productId);
+    if (!assignment) return false;
+    if (!assignment.machines || !assignment.machines.length) return true; // 未指定＝その製品の全機が対象
+    return assignment.machines.includes(r.machine);
+  });
+}
+
+function renderWhoamiBar(myStaff) {
+  const myId = localStorage.getItem("selectedStaffId");
+  const label = document.getElementById("whoami-label");
+  const toggleWrap = document.getElementById("my-only-toggle-wrap");
+
+  if (myStaff) {
+    label.textContent = `👤 ${myStaff.name} さん`;
+  } else if (myId === OTHER_STAFF_VALUE) {
+    label.textContent = `👤 ${localStorage.getItem("otherStaffName") || "設定済み"}`;
+  } else {
+    label.textContent = "👤 担当者が未設定です";
+  }
+
+  const hasAssignments = !!(myStaff && myStaff.assignments && myStaff.assignments.length);
+  toggleWrap.classList.toggle("hidden", !hasAssignments);
+
+  if (!myOnlyToggleInitialized) {
+    const stored = localStorage.getItem("showMyOnly");
+    document.getElementById("my-only-toggle").checked = stored === null ? hasAssignments : stored === "1";
+    myOnlyToggleInitialized = true;
+  }
+}
+
 function renderDashboard() {
-  const rows = computePriorityList(products, latestScans);
+  const myStaff = getMyStaff();
+  renderWhoamiBar(myStaff);
+
+  const allRows = computePriorityList(products, latestScans);
+  const showMyOnly = document.getElementById("my-only-toggle").checked;
+  const hasAssignments = !!(myStaff && myStaff.assignments && myStaff.assignments.length);
+  const rows = showMyOnly && hasAssignments ? filterRowsForStaff(allRows, myStaff) : allRows;
+  rows.forEach((row, i) => {
+    row.rank = i + 1;
+  });
   const stats = summarize(rows);
 
   document.getElementById("summary-row").innerHTML = `
@@ -66,7 +116,10 @@ function renderDashboard() {
 
   const listEl = document.getElementById("priority-list");
   if (!rows.length) {
-    listEl.innerHTML = '<p class="empty-hint">まだ記録がありません。「撮影」タブから指示表を撮影してください。</p>';
+    listEl.innerHTML =
+      showMyOnly && hasAssignments && allRows.length
+        ? '<p class="empty-hint">あなたの担当分の記録がありません。担当製品の設定をご確認ください。</p>'
+        : '<p class="empty-hint">まだ記録がありません。「撮影」タブから指示表を撮影してください。</p>';
     return;
   }
   listEl.innerHTML = rows
@@ -188,6 +241,80 @@ function wirePriorityListEvents() {
     const btn = evt.target.closest(".exchange-btn");
     if (!btn) return;
     openExchangeModal(btn.dataset.product, btn.dataset.machine, btn.dataset.tool);
+  });
+}
+
+// ---------- 「あなた」の設定（優先順位タブの絞り込み用） ----------
+
+function openWhoamiModal() {
+  const sel = document.getElementById("whoami-select");
+  const otherInput = document.getElementById("whoami-other-input");
+  const options = ['<option value="">選択してください</option>']
+    .concat(staffList.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`))
+    .concat([`<option value="${OTHER_STAFF_VALUE}">その他（自由入力）</option>`]);
+  sel.innerHTML = options.join("");
+
+  const saved = localStorage.getItem("selectedStaffId");
+  if (saved && (staffList.some((s) => s.id === saved) || saved === OTHER_STAFF_VALUE)) {
+    sel.value = saved;
+  }
+  otherInput.classList.toggle("hidden", sel.value !== OTHER_STAFF_VALUE);
+  if (sel.value === OTHER_STAFF_VALUE) {
+    otherInput.value = localStorage.getItem("otherStaffName") || "";
+  }
+  document.getElementById("whoami-modal").classList.remove("hidden");
+}
+
+function closeWhoamiModal() {
+  document.getElementById("whoami-modal").classList.add("hidden");
+}
+
+// 未設定・未案内であれば、初回に一度だけ「あなたを選択」を促す
+function maybePromptWhoami() {
+  if (localStorage.getItem("selectedStaffId")) return;
+  if (localStorage.getItem("whoamiPromptDismissed")) return;
+  if (!staffList.length) return;
+  if (!document.getElementById("whoami-modal").classList.contains("hidden")) return;
+  openWhoamiModal();
+}
+
+function wireWhoamiModal() {
+  const sel = document.getElementById("whoami-select");
+  const otherInput = document.getElementById("whoami-other-input");
+
+  sel.addEventListener("change", () => {
+    otherInput.classList.toggle("hidden", sel.value !== OTHER_STAFF_VALUE);
+  });
+
+  document.getElementById("whoami-modal-skip").addEventListener("click", () => {
+    localStorage.setItem("whoamiPromptDismissed", "1");
+    closeWhoamiModal();
+  });
+
+  document.getElementById("whoami-modal-confirm").addEventListener("click", () => {
+    if (!sel.value) {
+      showToast("担当者を選択してください", true);
+      return;
+    }
+    if (sel.value === OTHER_STAFF_VALUE) {
+      const name = otherInput.value.trim();
+      if (!name) {
+        showToast("お名前を入力してください", true);
+        return;
+      }
+      localStorage.setItem("otherStaffName", name);
+    }
+    localStorage.setItem("selectedStaffId", sel.value);
+    localStorage.setItem("whoamiPromptDismissed", "1");
+    closeWhoamiModal();
+    renderDashboard();
+  });
+
+  document.getElementById("btn-whoami-change").addEventListener("click", openWhoamiModal);
+
+  document.getElementById("my-only-toggle").addEventListener("change", () => {
+    localStorage.setItem("showMyOnly", document.getElementById("my-only-toggle").checked ? "1" : "0");
+    renderDashboard();
   });
 }
 
@@ -1095,6 +1222,8 @@ async function startApp() {
     staffList = s.slice().sort((a, b) => a.name.localeCompare(b.name, "ja"));
     populateStaffSelect();
     renderAdminStaff();
+    renderDashboard();
+    maybePromptWhoami();
   });
 }
 
@@ -1124,6 +1253,7 @@ async function init() {
   wireStaffSelect();
   wirePriorityListEvents();
   wireExchangeModal();
+  wireWhoamiModal();
 
   if (!db.isReady()) {
     document.getElementById("setup-notice").classList.remove("hidden");

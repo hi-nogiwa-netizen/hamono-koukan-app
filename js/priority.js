@@ -28,6 +28,7 @@ function machineCycleTimeSec(machine) {
 export function computePriorityList(products, latestScans, now = new Date()) {
   const rows = [];
   const currentShiftEnd = isOperating(now) ? currentOperatingSegmentEnd(now) : null;
+  const nextShiftEnd = currentShiftEnd ? currentOperatingSegmentEnd(currentShiftEnd) : null;
 
   for (const product of products) {
     for (const machine of product.machines || []) {
@@ -57,11 +58,28 @@ export function computePriorityList(products, latestScans, now = new Date()) {
             exhaustAt,
             secondsToExhaust,
             withinCurrentShift: currentShiftEnd ? exhaustAt.getTime() <= currentShiftEnd.getTime() : false,
+            withinNextShift: nextShiftEnd ? exhaustAt.getTime() <= nextShiftEnd.getTime() : false,
           };
         }
 
-        let level = levelFor(ratio);
-        if (timeEstimate && timeEstimate.withinCurrentShift) level = "danger";
+        // サイクルタイムがある場合は、割合ではなく時間ベースの判定を優先する
+        // （割合だけで「至急交換」なのに、時間ベースでは「今のシフト中は不要」といった
+        //   矛盾した表示になるのを避けるため）。ただし寿命を使い切っている場合は
+        //   時間の見積もりに関わらず常に至急扱いにする。
+        let level;
+        if (timeEstimate) {
+          if (remaining <= 0) {
+            level = "danger";
+          } else if (timeEstimate.withinCurrentShift) {
+            level = "danger";
+          } else if (timeEstimate.withinNextShift) {
+            level = "warning";
+          } else {
+            level = "ok";
+          }
+        } else {
+          level = levelFor(ratio);
+        }
 
         rows.push({
           productId: product.id,

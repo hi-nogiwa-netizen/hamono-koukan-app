@@ -185,6 +185,15 @@ body {
   padding: 2px 6px;
   border-radius: 6px;
 }
+.warn-flag {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  background: var(--warning);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
 
 .empty-hint { color: var(--text-muted); text-align: center; padding: 24px 0; }
 

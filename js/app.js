@@ -76,7 +76,9 @@ function renderDashboard() {
       const shiftFlag = te
         ? te.withinCurrentShift
           ? '<span class="today-flag">⏰ 今のシフト中に交換が必要</span>'
-          : '<span class="ok-flag">✅ 今のシフト中は交換不要</span>'
+          : te.withinNextShift
+            ? '<span class="warn-flag">🟡 次のシフトまでに交換が必要</span>'
+            : '<span class="ok-flag">✅ 今のシフト中は交換不要</span>'
         : r.willRunOutToday
           ? '<span class="today-flag">本日中に寿命到達の恐れ</span>'
           : "";

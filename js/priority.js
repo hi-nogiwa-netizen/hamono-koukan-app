@@ -103,8 +103,24 @@ export function computePriorityList(products, latestScans, now = new Date()) {
     }
   }
 
-  // 残り寿命の割合が低い(=交換が近い)順に並べ、順位を付与する
-  rows.sort((a, b) => a.ratio - b.ratio);
+  // 表示バッジ（level）と番号の並び順が食い違わないよう、まずlevel（危険度）でグループ分けする。
+  // 同じグループ内では、(1)時間の見積もりがある行を先に、(2)見積もりがある同士は早く尽きる順、
+  // (3)見積もりがない同士は割合が低い順、で並べる。
+  // ※ 見積もり(秒)と割合を直接比較すると単位が違うため、順序が矛盾する（AがBより先、BがCより先、
+  //   なのにCがAより先、のような循環）ことがあるので、必ず「見積もりの有無」でグループを分けてから
+  //   同じ単位同士だけを比較するようにしている。
+  const LEVEL_ORDER = { danger: 0, warning: 1, ok: 2 };
+  rows.sort((a, b) => {
+    const levelDiff = LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level];
+    if (levelDiff !== 0) return levelDiff;
+    const aHasEstimate = a.timeEstimate ? 0 : 1;
+    const bHasEstimate = b.timeEstimate ? 0 : 1;
+    if (aHasEstimate !== bHasEstimate) return aHasEstimate - bHasEstimate;
+    if (a.timeEstimate && b.timeEstimate) {
+      return a.timeEstimate.secondsToExhaust - b.timeEstimate.secondsToExhaust;
+    }
+    return a.ratio - b.ratio;
+  });
   rows.forEach((row, index) => {
     row.rank = index + 1;
   });

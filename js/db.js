@@ -89,14 +89,25 @@ export async function ensureSeedData() {
   }
 }
 
+// Realtime Databaseは、配列の要素が歯抜けになっている等の理由で、本来配列であるはずの
+// データを { "0": ..., "2": ... } のようなオブジェクトとして返すことがある。
+// そのままだと .map() や .forEach() で描画中にエラーになり、その製品のカードが
+// 途中（保存・複製・削除ボタンより前）で描画を止めてしまうため、必ず配列に揃える。
+function toArray(value) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") return Object.values(value);
+  return [];
+}
+
 // 古いデータ（machinesが文字列配列 ["NC55", ...]）を
 // 新形式（[{name, cycleTimeSec}, ...]）に変換して読み込む。
 // サイクルタイム機能を追加する前のデータとの互換性のため。
 function normalizeProduct(product) {
-  const machines = (product.machines || []).map((m) =>
+  const machines = toArray(product.machines).map((m) =>
     typeof m === "string" ? { name: m, cycleTimeSec: null } : m
   );
-  return { ...product, machines };
+  const tools = toArray(product.tools);
+  return { ...product, machines, tools };
 }
 
 export function subscribeProducts(onChange) {

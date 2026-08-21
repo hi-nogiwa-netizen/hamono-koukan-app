@@ -731,7 +731,17 @@ function buildAdminProductCard(product) {
 function renderAdmin() {
   const container = document.getElementById("admin-product-list");
   container.innerHTML = "";
-  products.forEach((product) => container.appendChild(buildAdminProductCard(product)));
+  products.forEach((product) => {
+    try {
+      container.appendChild(buildAdminProductCard(product));
+    } catch (e) {
+      // 1件のデータ不備で、以降の製品カードまで描画されなくなるのを防ぐ
+      const errCard = document.createElement("div");
+      errCard.className = "admin-product-card";
+      errCard.innerHTML = `<p class="hint-text">「${escapeHtml(product.name || product.id)}」の表示中にエラーが発生しました: ${escapeHtml(e.message)}</p>`;
+      container.appendChild(errCard);
+    }
+  });
 }
 
 // 担当者は複数の製品を担当できる。assignments は
@@ -883,7 +893,16 @@ function buildAdminStaffCard(staffMember) {
 function renderAdminStaff() {
   const container = document.getElementById("admin-staff-list");
   container.innerHTML = "";
-  staffList.forEach((s) => container.appendChild(buildAdminStaffCard(s)));
+  staffList.forEach((s) => {
+    try {
+      container.appendChild(buildAdminStaffCard(s));
+    } catch (e) {
+      const errCard = document.createElement("div");
+      errCard.className = "admin-product-card";
+      errCard.innerHTML = `<p class="hint-text">「${escapeHtml(s.name || s.id)}」の表示中にエラーが発生しました: ${escapeHtml(e.message)}</p>`;
+      container.appendChild(errCard);
+    }
+  });
 }
 
 function wireAdminEvents() {

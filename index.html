@@ -51,10 +51,12 @@
   <!-- 撮影 -->
   <section id="view-capture" class="view hidden">
     <div id="capture-step-select" class="capture-step">
-      <h2>1. 製品を選択して入力方法を選ぶ</h2>
+      <h2>1. 担当者を選んで入力方法を選ぶ</h2>
+      <label class="field-label">担当者</label>
+      <select id="staff-select" class="big-select"></select>
+      <input id="capturedBy-other-input" type="text" class="text-input hidden" placeholder="お名前を入力" />
+      <label class="field-label">製品</label>
       <select id="product-select" class="big-select"></select>
-      <label class="field-label">記入者名</label>
-      <input id="capturedBy-input" type="text" class="text-input" placeholder="例：山際" />
       <button id="btn-take-photo" class="primary-btn">📷 写真で読み取る</button>
       <button id="btn-manual-entry" class="secondary-btn">⌨️ 表に直接入力する</button>
       <input id="file-input" type="file" accept="image/*" capture="environment" class="hidden-input" />
@@ -109,6 +111,13 @@
 
   <!-- マスタ管理 -->
   <section id="view-admin" class="view hidden">
+    <h2>担当者管理</h2>
+    <p class="hint-text">担当者ごとに担当製品・担当NC機を登録しておくと、「撮影」タブで名前を選ぶだけで製品とNC機が自動で設定されます。異動などがあれば、いつでもここで変更できます。</p>
+    <div class="row-buttons">
+      <button id="btn-admin-new-staff" class="secondary-btn">＋ 担当者を追加</button>
+    </div>
+    <div id="admin-staff-list" class="admin-product-list"></div>
+
     <h2>製品・工具マスタ管理</h2>
     <div class="row-buttons">
       <button id="btn-admin-new-product" class="secondary-btn">＋ 製品を追加</button>

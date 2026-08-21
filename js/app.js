@@ -4,6 +4,9 @@ import { fileToCanvas, warpToRect, sliceGridCells, recognizeGrid } from "./ocr.j
 
 let products = [];
 let latestScans = new Map();
+let staffList = [];
+
+const OTHER_STAFF_VALUE = "__other__";
 
 const capture = {
   product: null,
@@ -125,6 +128,85 @@ function populateProductSelect() {
   if (products.some((p) => p.id === prevVal)) sel.value = prevVal;
 }
 
+// 担当者選択：登録済みの担当者一覧＋「その他（自由入力）」を選択肢にする。
+// 選んだ担当者に担当製品が設定されていれば、製品欄を自動でそちらに合わせる。
+function populateStaffSelect() {
+  const sel = document.getElementById("staff-select");
+  const otherInput = document.getElementById("capturedBy-other-input");
+  const prevVal = sel.value;
+
+  const options = ['<option value="">選択してください</option>']
+    .concat(staffList.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`))
+    .concat([`<option value="${OTHER_STAFF_VALUE}">その他（自由入力）</option>`]);
+  sel.innerHTML = options.join("");
+
+  const savedStaffId = localStorage.getItem("selectedStaffId");
+  if (staffList.some((s) => s.id === prevVal) || prevVal === OTHER_STAFF_VALUE) {
+    sel.value = prevVal;
+  } else if (savedStaffId && (staffList.some((s) => s.id === savedStaffId) || savedStaffId === OTHER_STAFF_VALUE)) {
+    sel.value = savedStaffId;
+  }
+
+  if (sel.value === OTHER_STAFF_VALUE) {
+    otherInput.classList.remove("hidden");
+    const savedOther = localStorage.getItem("otherStaffName");
+    if (savedOther && !otherInput.value) otherInput.value = savedOther;
+  } else {
+    otherInput.classList.add("hidden");
+    const staff = staffList.find((s) => s.id === sel.value);
+    if (staff && staff.productId && products.some((p) => p.id === staff.productId)) {
+      document.getElementById("product-select").value = staff.productId;
+    }
+  }
+}
+
+function getSelectedStaff() {
+  const staffId = document.getElementById("staff-select").value;
+  if (!staffId || staffId === OTHER_STAFF_VALUE) return null;
+  return staffList.find((s) => s.id === staffId) || null;
+}
+
+function currentCapturedByName() {
+  const sel = document.getElementById("staff-select");
+  if (sel.value === OTHER_STAFF_VALUE) {
+    return document.getElementById("capturedBy-other-input").value.trim();
+  }
+  const staff = staffList.find((s) => s.id === sel.value);
+  return staff ? staff.name : "";
+}
+
+function requireCapturedBy() {
+  const name = currentCapturedByName();
+  if (!name) {
+    showToast("担当者を選択（または入力）してください", true);
+    return null;
+  }
+  return name;
+}
+
+function wireStaffSelect() {
+  const staffSelect = document.getElementById("staff-select");
+  const otherInput = document.getElementById("capturedBy-other-input");
+
+  staffSelect.addEventListener("change", () => {
+    localStorage.setItem("selectedStaffId", staffSelect.value);
+    if (staffSelect.value === OTHER_STAFF_VALUE) {
+      otherInput.classList.remove("hidden");
+      otherInput.focus();
+      return;
+    }
+    otherInput.classList.add("hidden");
+    const staff = staffList.find((s) => s.id === staffSelect.value);
+    if (staff && staff.productId && products.some((p) => p.id === staff.productId)) {
+      document.getElementById("product-select").value = staff.productId;
+    }
+  });
+
+  otherInput.addEventListener("input", () => {
+    localStorage.setItem("otherStaffName", otherInput.value);
+  });
+}
+
 function showCaptureStep(name) {
   ["select", "corners", "ocr", "review", "done"].forEach((s) => {
     document.getElementById(`capture-step-${s}`).classList.toggle("hidden", s !== name);
@@ -209,19 +291,26 @@ function setReviewStepMode(mode) {
   }
 }
 
-// ocrResults が null の場合は「表に直接入力」モード（前回値を初期値として編集する）
-function buildEntryTable(ocrResults) {
+// ocrResults が null の場合は「表に直接入力」モード（前回値を初期値として編集する）。
+// machineFilter を渡すと、手入力モード限定でその機械の列だけを表示する
+// （担当者に担当NC機が登録されている場合、入力の手間を減らすため）。
+// 写真読み取りモードでは、紙に印刷された全NC機分をまとめて読み取っているため絞り込まない。
+function buildEntryTable(ocrResults, machineFilter) {
   const product = capture.product;
   const table = document.getElementById("review-table");
   const resultMap = new Map();
   if (ocrResults) ocrResults.forEach((r) => resultMap.set(`${r.row}:${r.col}`, r));
 
-  const headHtml = `<thead><tr><th>工具</th>${product.machines.map((m) => `<th>${escapeHtml(m)}</th>`).join("")}</tr></thead>`;
+  const useFilter = !ocrResults && machineFilter && machineFilter.length;
+  const machines = useFilter ? product.machines.filter((m) => machineFilter.includes(m)) : product.machines;
+
+  const headHtml = `<thead><tr><th>工具</th>${machines.map((m) => `<th>${escapeHtml(m)}</th>`).join("")}</tr></thead>`;
 
   const bodyRows = product.tools
     .map((tool, rIdx) => {
-      const cells = product.machines
-        .map((machine, cIdx) => {
+      const cells = machines
+        .map((machine) => {
+          const cIdx = product.machines.indexOf(machine);
           const ocr = resultMap.get(`${rIdx}:${cIdx}`);
           const prevScan = latestScans.get(`${product.id}::${machine}`);
           const prevVal = prevScan && prevScan.readings ? prevScan.readings[tool.no] : undefined;
@@ -250,16 +339,21 @@ function startManualEntry() {
     showToast("製品を選択してください", true);
     return;
   }
+  const name = requireCapturedBy();
+  if (!name) return;
   capture.product = products.find((p) => p.id === productId);
-  capture.capturedBy = document.getElementById("capturedBy-input").value.trim();
-  localStorage.setItem("capturedBy", capture.capturedBy);
   if (!capture.product) {
     showToast("製品を選択してください", true);
     return;
   }
+  capture.capturedBy = name;
   capture.ocrResults = null;
+
+  const staff = getSelectedStaff();
+  const machineFilter = staff && staff.machines && staff.machines.length ? staff.machines : null;
+
   setReviewStepMode("manual");
-  buildEntryTable(null);
+  buildEntryTable(null, machineFilter);
   showCaptureStep("review");
 }
 
@@ -316,6 +410,7 @@ function wireCaptureEvents() {
       showToast("製品を選択してください", true);
       return;
     }
+    if (!requireCapturedBy()) return;
     document.getElementById("file-input").click();
   });
 
@@ -328,12 +423,13 @@ function wireCaptureEvents() {
 
     const productId = document.getElementById("product-select").value;
     capture.product = products.find((p) => p.id === productId);
-    capture.capturedBy = document.getElementById("capturedBy-input").value.trim();
-    localStorage.setItem("capturedBy", capture.capturedBy);
+    const name = requireCapturedBy();
     if (!capture.product) {
       showToast("製品を選択してください", true);
       return;
     }
+    if (!name) return;
+    capture.capturedBy = name;
 
     capture.sourceCanvas = await fileToCanvas(file);
     capture.tappedPoints = [];
@@ -487,12 +583,125 @@ function renderAdmin() {
   products.forEach((product) => container.appendChild(buildAdminProductCard(product)));
 }
 
+function buildAdminStaffCard(staffMember) {
+  const card = document.createElement("div");
+  card.className = "admin-product-card";
+
+  const title = document.createElement("h3");
+  title.textContent = staffMember.name || "(新規担当者)";
+  card.appendChild(title);
+
+  const nameField = mkField("氏名", staffMember.name || "");
+  card.appendChild(nameField.wrap);
+
+  const productWrap = document.createElement("div");
+  productWrap.className = "admin-field";
+  const productLabel = document.createElement("label");
+  productLabel.textContent = "担当製品";
+  const productSelect = document.createElement("select");
+  productSelect.innerHTML =
+    '<option value="">未設定</option>' +
+    products.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+  if (staffMember.productId) productSelect.value = staffMember.productId;
+  productWrap.append(productLabel, productSelect);
+  card.appendChild(productWrap);
+
+  const machinesWrap = document.createElement("div");
+  machinesWrap.className = "admin-field";
+  const machinesLabel = document.createElement("label");
+  machinesLabel.textContent = "担当NC機（複数選択可。何も選ばなければ全機が対象になります）";
+  const checkboxGroup = document.createElement("div");
+  checkboxGroup.className = "checkbox-group";
+  machinesWrap.append(machinesLabel, checkboxGroup);
+  card.appendChild(machinesWrap);
+
+  function renderMachineCheckboxes() {
+    const product = products.find((p) => p.id === productSelect.value);
+    const machineList = product ? product.machines || [] : [];
+    const selected = new Set(staffMember.machines || []);
+    checkboxGroup.innerHTML = "";
+    if (!machineList.length) {
+      checkboxGroup.innerHTML = '<span class="hint-text">担当製品を選ぶとNC機の一覧が表示されます</span>';
+      return;
+    }
+    machineList.forEach((m) => {
+      const label = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = m;
+      cb.checked = selected.has(m);
+      label.append(cb, document.createTextNode(m));
+      checkboxGroup.appendChild(label);
+    });
+  }
+  renderMachineCheckboxes();
+  productSelect.addEventListener("change", renderMachineCheckboxes);
+
+  const actions = document.createElement("div");
+  actions.className = "admin-actions";
+
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "primary-btn";
+  saveBtn.textContent = "保存";
+  saveBtn.addEventListener("click", async () => {
+    const name = nameField.input.value.trim();
+    if (!name) {
+      showToast("氏名を入力してください", true);
+      return;
+    }
+    const checkedMachines = Array.from(checkboxGroup.querySelectorAll("input:checked")).map((cb) => cb.value);
+    try {
+      if (staffMember.id) {
+        await db.saveStaff({ id: staffMember.id, name, productId: productSelect.value || "", machines: checkedMachines });
+      } else {
+        const created = await db.addStaff({ name, productId: productSelect.value || "", machines: checkedMachines });
+        staffMember.id = created.id;
+      }
+      showToast("保存しました");
+    } catch (e) {
+      showToast("保存に失敗しました: " + e.message, true);
+    }
+  });
+
+  const delBtn = document.createElement("button");
+  delBtn.className = "secondary-btn";
+  delBtn.textContent = "削除";
+  delBtn.addEventListener("click", async () => {
+    if (!staffMember.id) {
+      card.remove();
+      return;
+    }
+    if (!confirm(`「${staffMember.name}」を削除しますか？`)) return;
+    try {
+      await db.deleteStaff(staffMember.id);
+      showToast("削除しました");
+    } catch (e) {
+      showToast("削除に失敗しました: " + e.message, true);
+    }
+  });
+
+  actions.append(saveBtn, delBtn);
+  card.appendChild(actions);
+  return card;
+}
+
+function renderAdminStaff() {
+  const container = document.getElementById("admin-staff-list");
+  container.innerHTML = "";
+  staffList.forEach((s) => container.appendChild(buildAdminStaffCard(s)));
+}
+
 function wireAdminEvents() {
   document.getElementById("btn-admin-new-product").addEventListener("click", () => {
     const id = prompt("新しい製品ID（英数字、後から変更不可）を入力してください");
     if (!id || !id.trim()) return;
     const blank = { id: id.trim(), name: id.trim(), machines: ["NC1"], dailyQty: 400, tools: [] };
     document.getElementById("admin-product-list").prepend(buildAdminProductCard(blank));
+  });
+
+  document.getElementById("btn-admin-new-staff").addEventListener("click", () => {
+    const blank = { id: null, name: "", productId: "", machines: [] };
+    document.getElementById("admin-staff-list").prepend(buildAdminStaffCard(blank));
   });
 
   document.getElementById("btn-signout").addEventListener("click", async () => {
@@ -551,6 +760,7 @@ function wireAuthGate() {
 let unsubProducts = null;
 let unsubScans = null;
 let unsubHistory = null;
+let unsubStaff = null;
 
 async function startApp() {
   try {
@@ -564,8 +774,10 @@ async function startApp() {
   unsubProducts = db.subscribeProducts((p) => {
     products = p.slice().sort((a, b) => a.name.localeCompare(b.name, "ja"));
     populateProductSelect();
+    populateStaffSelect();
     renderDashboard();
     renderAdmin();
+    renderAdminStaff();
   });
 
   unsubScans = db.subscribeLatestScans((m) => {
@@ -576,30 +788,38 @@ async function startApp() {
   unsubHistory = db.subscribeScanHistory((scans) => {
     renderHistory(scans);
   });
+
+  unsubStaff = db.subscribeStaff((s) => {
+    staffList = s.slice().sort((a, b) => a.name.localeCompare(b.name, "ja"));
+    populateStaffSelect();
+    renderAdminStaff();
+  });
 }
 
 function stopApp() {
   if (unsubProducts) unsubProducts();
   if (unsubScans) unsubScans();
   if (unsubHistory) unsubHistory();
-  unsubProducts = unsubScans = unsubHistory = null;
+  if (unsubStaff) unsubStaff();
+  unsubProducts = unsubScans = unsubHistory = unsubStaff = null;
 
   products = [];
   latestScans = new Map();
+  staffList = [];
   populateProductSelect();
+  populateStaffSelect();
   renderDashboard();
   document.getElementById("history-list").innerHTML = "";
   document.getElementById("admin-product-list").innerHTML = "";
+  document.getElementById("admin-staff-list").innerHTML = "";
   resetCaptureFlow();
 }
 
 async function init() {
-  const savedName = localStorage.getItem("capturedBy");
-  if (savedName) document.getElementById("capturedBy-input").value = savedName;
-
   wireCaptureEvents();
   wireAdminEvents();
   wireAuthGate();
+  wireStaffSelect();
 
   if (!db.isReady()) {
     document.getElementById("setup-notice").classList.remove("hidden");

@@ -108,6 +108,35 @@ export async function deleteProduct(productId) {
   await remove(ref(db, `products/${productId}`));
 }
 
+// ---- 担当者マスタ（担当者ごとの担当製品・担当NC機） ----
+
+export function subscribeStaff(onChange) {
+  const db = getDb();
+  return onValue(ref(db, "staff"), (snap) => {
+    const val = snap.val() || {};
+    const staff = Object.keys(val).map((id) => ({ id, ...val[id] }));
+    onChange(staff);
+  });
+}
+
+export async function addStaff(staff) {
+  const db = getDb();
+  const newRef = push(ref(db, "staff"));
+  const record = { ...staff, id: newRef.key };
+  await set(newRef, record);
+  return record;
+}
+
+export async function saveStaff(staff) {
+  const db = getDb();
+  await set(ref(db, `staff/${staff.id}`), staff);
+}
+
+export async function deleteStaff(staffId) {
+  const db = getDb();
+  await remove(ref(db, `staff/${staffId}`));
+}
+
 // ---- スキャン結果（撮影→OCR確認後に保存する使用数記録） ----
 
 export async function submitScan({ productId, machine, capturedBy, readings }) {

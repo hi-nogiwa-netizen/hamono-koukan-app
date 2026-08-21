@@ -260,7 +260,19 @@ body {
 .admin-product-card h3 { margin: 0 0 8px; font-size: 16px; }
 .admin-field { margin-bottom: 10px; }
 .admin-field label { display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 3px; }
-.admin-field input { width: 100%; padding: 9px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
+.admin-field input, .admin-field select { width: 100%; padding: 9px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: white; }
+.checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #eef2f6;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.checkbox-group input { width: auto; }
 .tool-row-grid {
   display: grid;
   grid-template-columns: 60px 1fr 1fr 1fr 60px 80px 34px;

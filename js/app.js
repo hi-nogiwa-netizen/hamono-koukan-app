@@ -47,7 +47,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     const view = btn.dataset.view;
-    ["dashboard", "capture", "history", "admin"].forEach((v) => {
+    ["dashboard", "staff-summary", "capture", "history", "admin"].forEach((v) => {
       document.getElementById(`view-${v}`).classList.toggle("hidden", v !== view);
     });
   });
@@ -62,14 +62,22 @@ function getMyStaff() {
   return staffList.find((s) => s.id === myId) || null;
 }
 
+function isAssignedTo(staff, productId, machine) {
+  if (!staff || !staff.assignments) return false;
+  const assignment = staff.assignments.find((a) => a.productId === productId);
+  if (!assignment) return false;
+  if (!assignment.machines || !assignment.machines.length) return true; // 未指定＝その製品の全機が対象
+  return assignment.machines.includes(machine);
+}
+
+// その製品・機械を担当している人（複数いる場合は全員）の名前を返す
+function findAssignedStaffNames(productId, machine) {
+  return staffList.filter((s) => isAssignedTo(s, productId, machine)).map((s) => s.name);
+}
+
 function filterRowsForStaff(rows, staff) {
   if (!staff || !staff.assignments || !staff.assignments.length) return rows;
-  return rows.filter((r) => {
-    const assignment = staff.assignments.find((a) => a.productId === r.productId);
-    if (!assignment) return false;
-    if (!assignment.machines || !assignment.machines.length) return true; // 未指定＝その製品の全機が対象
-    return assignment.machines.includes(r.machine);
-  });
+  return rows.filter((r) => isAssignedTo(staff, r.productId, r.machine));
 }
 
 function renderWhoamiBar(myStaff) {
@@ -138,6 +146,10 @@ function renderDashboard() {
       const timeLine = te
         ? `<div class="time-estimate">⏱ 残り約${escapeHtml(formatDuration(te.secondsToExhaust))}（目安 ${escapeHtml(formatDateTime(te.exhaustAt))}）</div>`
         : "";
+      const assignedNames = findAssignedStaffNames(r.productId, r.machine);
+      const assignedLine = assignedNames.length
+        ? `<div class="assignee-line">👤 担当: ${escapeHtml(assignedNames.join("、"))}</div>`
+        : '<div class="assignee-line assignee-none">👤 担当者未設定</div>';
       return `
       <div class="priority-card ${r.level}">
         <div class="priority-card-main">
@@ -145,6 +157,7 @@ function renderDashboard() {
           <div class="info">
             <div class="title">${escapeHtml(r.toolNo)}　${escapeHtml(r.process)}</div>
             <div class="sub">${escapeHtml(r.productName)} / ${escapeHtml(r.machine)} / ${escapeHtml(r.maker)} ${escapeHtml(r.model)}</div>
+            ${assignedLine}
             ${timeLine}
             ${shiftFlag}
           </div>
@@ -156,6 +169,42 @@ function renderDashboard() {
         <button class="exchange-btn" data-product="${escapeHtml(r.productId)}" data-machine="${escapeHtml(r.machine)}" data-tool="${escapeHtml(r.toolNo)}">✅ 交換した</button>
       </div>`;
     })
+    .join("");
+}
+
+// 担当者ごとに、担当製品・NC機の範囲で交換待ちの工具数をまとめて表示する（「担当別」タブ）
+function renderStaffSummary() {
+  const container = document.getElementById("staff-summary-list");
+  if (!container) return;
+
+  const staffWithAssignments = staffList.filter((s) => s.assignments && s.assignments.length);
+  if (!staffWithAssignments.length) {
+    container.innerHTML =
+      '<p class="empty-hint">担当製品・NC機が登録されている担当者がいません。「マスタ管理」タブの担当者管理から登録してください。</p>';
+    return;
+  }
+
+  const allRows = computePriorityList(products, latestScans);
+  const summaries = staffWithAssignments.map((staff) => ({
+    staff,
+    stats: summarize(filterRowsForStaff(allRows, staff)),
+  }));
+
+  // 至急交換が多い人ほど上に表示する
+  summaries.sort((a, b) => b.stats.danger - a.stats.danger || b.stats.warning - a.stats.warning);
+
+  container.innerHTML = summaries
+    .map(
+      ({ staff, stats }) => `
+      <div class="staff-summary-card">
+        <div class="staff-summary-name">👤 ${escapeHtml(staff.name)}</div>
+        <div class="staff-summary-counts">
+          <span class="count-chip danger">🔴 至急 ${stats.danger}</span>
+          <span class="count-chip warning">🟡 まもなく ${stats.warning}</span>
+          <span class="count-chip ok">🟢 正常 ${stats.ok}</span>
+        </div>
+      </div>`
+    )
     .join("");
 }
 
@@ -1317,6 +1366,7 @@ async function startApp() {
     populateProductSelect();
     populateStaffSelect();
     renderDashboard();
+    renderStaffSummary();
     renderAdmin();
     renderAdminStaff();
   });
@@ -1324,6 +1374,7 @@ async function startApp() {
   unsubScans = db.subscribeLatestScans((m) => {
     latestScans = m;
     renderDashboard();
+    renderStaffSummary();
   });
 
   unsubHistory = db.subscribeScanHistory((scans) => {
@@ -1335,6 +1386,7 @@ async function startApp() {
     populateStaffSelect();
     renderAdminStaff();
     renderDashboard();
+    renderStaffSummary();
     maybePromptWhoami();
   });
 }
@@ -1352,6 +1404,7 @@ function stopApp() {
   populateProductSelect();
   populateStaffSelect();
   renderDashboard();
+  renderStaffSummary();
   document.getElementById("history-list").innerHTML = "";
   document.getElementById("admin-product-list").innerHTML = "";
   document.getElementById("admin-staff-list").innerHTML = "";

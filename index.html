@@ -131,6 +131,15 @@
     <div id="history-list" class="history-list"></div>
   </section>
 
+  <!-- 担当者別まとめ -->
+  <section id="view-staff-summary" class="view hidden">
+    <h2>担当者別の交換待ち状況</h2>
+    <p class="hint-text">担当製品・NC機が登録されている担当者ごとに、交換待ちの工具数をまとめています。</p>
+    <div id="staff-summary-list" class="staff-summary-list">
+      <p class="empty-hint">読み込み中…</p>
+    </div>
+  </section>
+
   <!-- マスタ管理 -->
   <section id="view-admin" class="view hidden">
     <h2>担当者管理</h2>
@@ -153,6 +162,9 @@
 <nav class="tab-bar">
   <button class="tab-btn active" data-view="dashboard">
     <span class="tab-icon">📋</span><span>優先順位</span>
+  </button>
+  <button class="tab-btn" data-view="staff-summary">
+    <span class="tab-icon">👥</span><span>担当別</span>
   </button>
   <button class="tab-btn" data-view="capture">
     <span class="tab-icon">📷</span><span>撮影</span>

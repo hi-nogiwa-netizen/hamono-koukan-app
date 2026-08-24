@@ -723,26 +723,149 @@ function mkCell(value, type = "text") {
   return inp;
 }
 
-// Excelなどからコピーした表（タブ区切り。カンマ区切りにも対応）を工具データに変換する。
-// 列の順：工具No・加工工程・メーカー・型式・工程数・寿命
-function parseBulkToolText(text) {
+// Excelなどからコピーした表を行×列の2次元配列にする（タブ区切り優先、なければカンマ区切り）。
+// 列の意味はここでは決め打ちにせず、貼り付け後の画面でユーザーに選んでもらう。
+// （ふりがな用の非表示列が混ざっていたり、列の並び順がシートごとに違うことがあるため）
+function parseGridText(text) {
   return text
     .split(/\r\n|\r|\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      const cells = line.includes("\t") ? line.split("\t") : line.split(",");
-      const get = (i) => (cells[i] !== undefined ? cells[i].trim() : "");
-      return {
-        no: get(0),
-        process: get(1),
-        maker: get(2),
-        model: get(3),
-        processCount: Number(get(4)) || 1,
-        life: Number(get(5)) || 0,
-      };
-    })
-    .filter((t) => t.no);
+    .filter((line) => line.trim().length > 0)
+    .map((line) => (line.includes("\t") ? line.split("\t") : line.split(",")).map((c) => c.trim()));
+}
+
+// ---------- 工具の一括貼り付け（列マッピング方式） ----------
+
+const BULK_PASTE_FIELD_OPTIONS = [
+  ["", "使用しない"],
+  ["no", "工具No"],
+  ["process", "加工工程"],
+  ["maker", "メーカー"],
+  ["model", "型式"],
+  ["processCount", "工程数"],
+  ["life", "寿命"],
+];
+
+let bulkPasteAddToolRow = null;
+let bulkPasteGrid = [];
+let bulkPasteColumnSelects = [];
+
+function openBulkPasteModal(addToolRowFn) {
+  bulkPasteAddToolRow = addToolRowFn;
+  bulkPasteGrid = [];
+  bulkPasteColumnSelects = [];
+  document.getElementById("bulk-paste-textarea").value = "";
+  document.getElementById("bulk-paste-step1").classList.remove("hidden");
+  document.getElementById("bulk-paste-step2").classList.add("hidden");
+  document.getElementById("bulk-paste-modal").classList.remove("hidden");
+}
+
+function closeBulkPasteModal() {
+  bulkPasteAddToolRow = null;
+  document.getElementById("bulk-paste-modal").classList.add("hidden");
+}
+
+// 貼り付けられた表を解析し、列ごとにマッピング用セレクトを並べたプレビュー表を作る
+function buildBulkPasteMappingTable(grid) {
+  const table = document.getElementById("bulk-paste-preview-table");
+  table.innerHTML = "";
+  if (!grid.length) return [];
+
+  const colCount = Math.max(...grid.map((row) => row.length));
+  const mappingSelects = [];
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (let c = 0; c < colCount; c++) {
+    const th = document.createElement("th");
+    const sel = document.createElement("select");
+    sel.className = "column-map-select";
+    sel.innerHTML = BULK_PASTE_FIELD_OPTIONS.map(([v, label]) => `<option value="${v}">${label}</option>`).join("");
+    th.appendChild(sel);
+    headRow.appendChild(th);
+    mappingSelects.push(sel);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  const previewLimit = 8;
+  grid.slice(0, previewLimit).forEach((row) => {
+    const tr = document.createElement("tr");
+    for (let c = 0; c < colCount; c++) {
+      const td = document.createElement("td");
+      td.textContent = row[c] !== undefined ? row[c] : "";
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  });
+  if (grid.length > previewLimit) {
+    const moreRow = document.createElement("tr");
+    const moreTd = document.createElement("td");
+    moreTd.colSpan = colCount;
+    moreTd.className = "hint-text";
+    moreTd.textContent = `他 ${grid.length - previewLimit} 行（プレビューは省略、追加自体はすべて行われます）`;
+    moreRow.appendChild(moreTd);
+    tbody.appendChild(moreRow);
+  }
+  table.appendChild(tbody);
+
+  return mappingSelects;
+}
+
+function wireBulkPasteModal() {
+  document.getElementById("bulk-paste-cancel-1").addEventListener("click", closeBulkPasteModal);
+
+  document.getElementById("bulk-paste-analyze-btn").addEventListener("click", () => {
+    const text = document.getElementById("bulk-paste-textarea").value;
+    bulkPasteGrid = parseGridText(text);
+    if (!bulkPasteGrid.length) {
+      showToast("貼り付けられた内容を読み取れませんでした", true);
+      return;
+    }
+    bulkPasteColumnSelects = buildBulkPasteMappingTable(bulkPasteGrid);
+    document.getElementById("bulk-paste-step1").classList.add("hidden");
+    document.getElementById("bulk-paste-step2").classList.remove("hidden");
+  });
+
+  document.getElementById("bulk-paste-back-btn").addEventListener("click", () => {
+    document.getElementById("bulk-paste-step2").classList.add("hidden");
+    document.getElementById("bulk-paste-step1").classList.remove("hidden");
+  });
+
+  document.getElementById("bulk-paste-confirm-btn").addEventListener("click", () => {
+    const fieldToCol = {};
+    bulkPasteColumnSelects.forEach((sel, idx) => {
+      if (sel.value) fieldToCol[sel.value] = idx;
+    });
+    if (fieldToCol.no === undefined) {
+      showToast("「工具No」に対応する列を選んでください", true);
+      return;
+    }
+    const hasHeader = document.getElementById("bulk-paste-has-header").checked;
+    const dataRows = hasHeader ? bulkPasteGrid.slice(1) : bulkPasteGrid;
+    const tools = dataRows
+      .map((row) => ({
+        no: (row[fieldToCol.no] || "").trim(),
+        process: fieldToCol.process !== undefined ? (row[fieldToCol.process] || "").trim() : "",
+        maker: fieldToCol.maker !== undefined ? (row[fieldToCol.maker] || "").trim() : "",
+        model: fieldToCol.model !== undefined ? (row[fieldToCol.model] || "").trim() : "",
+        processCount: fieldToCol.processCount !== undefined ? Number(row[fieldToCol.processCount]) || 1 : 1,
+        life: fieldToCol.life !== undefined ? Number(row[fieldToCol.life]) || 0 : 0,
+      }))
+      .filter((t) => t.no);
+
+    if (!tools.length) {
+      showToast("追加できる工具がありませんでした", true);
+      return;
+    }
+    if (!bulkPasteAddToolRow) {
+      showToast("追加先が見つかりませんでした。画面を開き直してください", true);
+      return;
+    }
+    tools.forEach((t) => bulkPasteAddToolRow(t));
+    showToast(`${tools.length}件の工具を追加しました（保存を押すまで確定しません）`);
+    closeBulkPasteModal();
+  });
 }
 
 function buildAdminProductCard(product) {
@@ -839,30 +962,11 @@ function buildAdminProductCard(product) {
   addRowBtn.addEventListener("click", () => addToolRow(null));
   card.appendChild(addRowBtn);
 
-  const bulkWrap = document.createElement("div");
-  bulkWrap.className = "bulk-paste-wrap";
-  const bulkLabel = document.createElement("label");
-  bulkLabel.className = "field-label";
-  bulkLabel.textContent =
-    "Excel等から貼り付けて一括追加（列の順：工具No・加工工程・メーカー・型式・工程数・寿命）";
-  const bulkTextarea = document.createElement("textarea");
-  bulkTextarea.className = "bulk-paste-textarea";
-  bulkTextarea.placeholder = "例（タブ区切りでそのまま貼り付けてください）:\nT01\t外径荒\t住友\tCNMG120405N-GU(AC603M)\t1\t500";
-  const bulkAddBtn = document.createElement("button");
-  bulkAddBtn.className = "secondary-btn";
-  bulkAddBtn.textContent = "貼り付けた内容を一括追加";
-  bulkAddBtn.addEventListener("click", () => {
-    const parsed = parseBulkToolText(bulkTextarea.value);
-    if (!parsed.length) {
-      showToast("貼り付けられた内容から工具を読み取れませんでした", true);
-      return;
-    }
-    parsed.forEach((t) => addToolRow(t));
-    bulkTextarea.value = "";
-    showToast(`${parsed.length}件の工具を追加しました（保存を押すまで確定しません）`);
-  });
-  bulkWrap.append(bulkLabel, bulkTextarea, bulkAddBtn);
-  card.appendChild(bulkWrap);
+  const bulkOpenBtn = document.createElement("button");
+  bulkOpenBtn.className = "secondary-btn";
+  bulkOpenBtn.textContent = "📋 Excel等から一括追加";
+  bulkOpenBtn.addEventListener("click", () => openBulkPasteModal(addToolRow));
+  card.appendChild(bulkOpenBtn);
 
   const actions = document.createElement("div");
   actions.className = "admin-actions";
@@ -1254,6 +1358,7 @@ async function init() {
   wirePriorityListEvents();
   wireExchangeModal();
   wireWhoamiModal();
+  wireBulkPasteModal();
 
   if (!db.isReady()) {
     document.getElementById("setup-notice").classList.remove("hidden");

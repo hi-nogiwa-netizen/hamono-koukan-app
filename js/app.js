@@ -608,19 +608,27 @@ function startManualEntry() {
 
 async function submitReview() {
   const product = capture.product;
-  const inputs = document.querySelectorAll("#review-table input");
+  const inputs = Array.from(document.querySelectorAll("#review-table input"));
+  const machines = [...new Set(inputs.map((inp) => inp.dataset.machine))];
+
+  // 空欄で送信すると、その工具のデータが送信内容から丸ごと抜け落ち、
+  // 「前回値を維持」ではなく「記録が消える」扱いになってしまっていたのを修正。
+  // 直前の最新値をベースにして、入力された欄だけを上書きする。
   const byMachine = {};
-  inputs.forEach((inp) => {
-    const val = inp.value.trim();
-    if (val === "") return;
-    const machine = inp.dataset.machine;
-    const tool = inp.dataset.tool;
-    if (!byMachine[machine]) byMachine[machine] = {};
-    byMachine[machine][tool] = Number(val);
+  machines.forEach((machine) => {
+    const prevScan = latestScans.get(`${product.id}::${machine}`);
+    byMachine[machine] = { ...(prevScan && prevScan.readings ? prevScan.readings : {}) };
   });
 
-  const machinesWithData = Object.keys(byMachine);
-  if (!machinesWithData.length) {
+  let hasAnyInput = false;
+  inputs.forEach((inp) => {
+    const val = inp.value.trim();
+    if (val === "") return; // 空欄＝変更なし（前回値を維持）
+    hasAnyInput = true;
+    byMachine[inp.dataset.machine][inp.dataset.tool] = Number(val);
+  });
+
+  if (!hasAnyInput) {
     showToast("数値が入力されていません", true);
     return;
   }
@@ -628,7 +636,7 @@ async function submitReview() {
   const submitBtn = document.getElementById("btn-review-submit");
   submitBtn.disabled = true;
   try {
-    for (const machine of machinesWithData) {
+    for (const machine of machines) {
       await db.submitScan({
         productId: product.id,
         machine,

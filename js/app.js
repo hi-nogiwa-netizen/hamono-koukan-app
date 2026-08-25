@@ -819,9 +819,17 @@ function openBulkPasteModal(addToolRowFn) {
   bulkPasteGrid = [];
   bulkPasteColumnSelects = [];
   document.getElementById("bulk-paste-textarea").value = "";
+  document.getElementById("bulk-paste-error").classList.add("hidden");
   document.getElementById("bulk-paste-step1").classList.remove("hidden");
   document.getElementById("bulk-paste-step2").classList.add("hidden");
   document.getElementById("bulk-paste-modal").classList.remove("hidden");
+}
+
+function showBulkPasteError(message) {
+  const el = document.getElementById("bulk-paste-error");
+  el.textContent = message;
+  el.classList.remove("hidden");
+  showToast(message, true);
 }
 
 function closeBulkPasteModal() {
@@ -887,6 +895,7 @@ function wireBulkPasteModal() {
       showToast("貼り付けられた内容を読み取れませんでした", true);
       return;
     }
+    document.getElementById("bulk-paste-error").classList.add("hidden");
     bulkPasteColumnSelects = buildBulkPasteMappingTable(bulkPasteGrid);
     document.getElementById("bulk-paste-step1").classList.add("hidden");
     document.getElementById("bulk-paste-step2").classList.remove("hidden");
@@ -898,12 +907,13 @@ function wireBulkPasteModal() {
   });
 
   document.getElementById("bulk-paste-confirm-btn").addEventListener("click", () => {
+    document.getElementById("bulk-paste-error").classList.add("hidden");
     const fieldToCol = {};
     bulkPasteColumnSelects.forEach((sel, idx) => {
       if (sel.value) fieldToCol[sel.value] = idx;
     });
     if (fieldToCol.no === undefined) {
-      showToast("「工具No」に対応する列を選んでください", true);
+      showBulkPasteError("「工具No」に対応する列を選んでください（プルダウンが並んだ表の一番上の行です）");
       return;
     }
     const hasHeader = document.getElementById("bulk-paste-has-header").checked;
@@ -920,7 +930,7 @@ function wireBulkPasteModal() {
       .filter((t) => t.no);
 
     if (!tools.length) {
-      showToast("追加できる工具がありませんでした", true);
+      showBulkPasteError("追加できる工具がありませんでした（見出し行のチェックが正しいか確認してください）");
       return;
     }
     if (!bulkPasteAddToolRow) {

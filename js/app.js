@@ -659,22 +659,36 @@ async function submitReview() {
   const product = capture.product;
   const inputs = Array.from(document.querySelectorAll("#review-table input"));
 
-  // 空欄の欄は「データなし」として扱い、送信内容に含めない
-  // （＝その工具・機械の組み合わせは優先順位一覧に表示されなくなる）。
-  const byMachine = {};
+  // 「変更があった機械」だけを送信対象にする。変更＝値を入力した、または元々
+  // 表示されていた値を消した、のいずれか（inp.defaultValue は表の初期表示値）。
+  // これにより、消した工具（空欄）はその機械の送信内容から除外され「データなし」
+  // 扱いになる。逆に、何も触っていない機械はそもそも送信されないため、既存データが
+  // 誤って消えることもない。
+  const machinesChanged = new Set();
   inputs.forEach((inp) => {
-    const val = inp.value.trim();
-    if (val === "") return;
+    if (inp.value.trim() !== inp.defaultValue.trim()) {
+      machinesChanged.add(inp.dataset.machine);
+    }
+  });
+
+  if (!machinesChanged.size) {
+    showToast("変更がありません", true);
+    return;
+  }
+
+  const byMachine = {};
+  machinesChanged.forEach((m) => {
+    byMachine[m] = {};
+  });
+  inputs.forEach((inp) => {
     const machine = inp.dataset.machine;
-    if (!byMachine[machine]) byMachine[machine] = {};
+    if (!machinesChanged.has(machine)) return;
+    const val = inp.value.trim();
+    if (val === "") return; // 空欄＝この工具は今回「データなし」扱い
     byMachine[machine][inp.dataset.tool] = Number(val);
   });
 
-  const machines = Object.keys(byMachine);
-  if (!machines.length) {
-    showToast("数値が入力されていません", true);
-    return;
-  }
+  const machines = Array.from(machinesChanged);
 
   const submitBtn = document.getElementById("btn-review-submit");
   submitBtn.disabled = true;

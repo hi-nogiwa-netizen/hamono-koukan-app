@@ -1,5 +1,5 @@
 import { PRIORITY_THRESHOLDS } from "./masterData.js";
-import { isOperating, currentOperatingSegmentEnd, addOperatingSeconds } from "./schedule.js";
+import { isOperating, currentOperatingSegmentEnd, addOperatingSeconds, operatingSecondsElapsed } from "./schedule.js";
 
 // 残り寿命の割合からレベル判定（danger=至急交換 / warning=まもなく交換 / ok=正常）
 export function levelFor(ratio) {
@@ -41,7 +41,22 @@ export function computePriorityList(products, latestScans, now = new Date()) {
         const count = scan.readings ? scan.readings[tool.no] : undefined;
         if (count === undefined || count === null || count === "") continue;
 
-        const numCount = Number(count);
+        const confirmedCount = Number(count);
+
+        // サイクルタイムが分かっている機械は、最後に記録した時刻から今までの
+        // 「稼働していた時間」をもとに、今どれくらい使われているはずかを推定し、
+        // カウンターを自動的に進める（人が入力し直さなくても、時間経過とともに増えていく）。
+        let numCount = confirmedCount;
+        let isEstimated = false;
+        if (cycleTimeSec && typeof scan.capturedAt === "number") {
+          const elapsedSec = operatingSecondsElapsed(new Date(scan.capturedAt), now);
+          if (elapsedSec > 0) {
+            const estimatedAdditional = (elapsedSec / cycleTimeSec) * (tool.processCount || 1);
+            numCount = confirmedCount + estimatedAdditional;
+            isEstimated = estimatedAdditional >= 1;
+          }
+        }
+
         const remaining = tool.life - numCount;
         const ratio = tool.life > 0 ? remaining / tool.life : 0;
         const dailyConsumption = (product.dailyQty || 0) * (tool.processCount || 1);
@@ -90,7 +105,9 @@ export function computePriorityList(products, latestScans, now = new Date()) {
           maker: tool.maker,
           model: tool.model,
           life: tool.life,
-          count: numCount,
+          count: Math.round(numCount),
+          confirmedCount,
+          isEstimated,
           remaining,
           ratio,
           level,

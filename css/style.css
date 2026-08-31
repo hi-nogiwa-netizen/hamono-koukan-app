@@ -236,6 +236,16 @@ body {
 .priority-card.warning .ratio { color: var(--warning); }
 .priority-card.ok .ratio { color: var(--ok); }
 .priority-card .counts { font-size: 11.5px; color: var(--text-muted); }
+.est-badge {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 9.5px;
+  background: var(--brand-light);
+  color: white;
+  padding: 1px 5px;
+  border-radius: 999px;
+  vertical-align: middle;
+}
 .today-flag {
   display: inline-block;
   margin-top: 4px;

@@ -120,6 +120,30 @@ export function addOperatingSeconds(startDate, seconds) {
   return current;
 }
 
+// fromDate から toDate までの間に、実際に「稼働していた」秒数を計算する（休みは含めない）。
+// addOperatingSeconds の逆版：あの関数が「開始点＋稼働◯秒」→終了時刻を求めるのに対し、
+// こちらは「開始点・終了点」→その間の稼働秒数を求める。
+export function operatingSecondsElapsed(fromDate, toDate) {
+  if (toDate.getTime() <= fromDate.getTime()) return 0;
+  let current = new Date(fromDate);
+  let elapsed = 0;
+  let guard = 0;
+  while (current.getTime() < toDate.getTime() && guard < 2000) {
+    guard++;
+    if (!isOperating(current)) {
+      const next = nextOperatingStart(current);
+      if (next.getTime() >= toDate.getTime()) break;
+      current = next;
+      continue;
+    }
+    const segmentEnd = currentOperatingSegmentEnd(current);
+    const boundEnd = segmentEnd.getTime() < toDate.getTime() ? segmentEnd : toDate;
+    elapsed += (boundEnd.getTime() - current.getTime()) / 1000;
+    current = boundEnd;
+  }
+  return elapsed;
+}
+
 // 秒数を「◯日◯時間◯分」のような読みやすい文字列にする
 export function formatDuration(seconds) {
   if (seconds <= 0) return "まもなく";

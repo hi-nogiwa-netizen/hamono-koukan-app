@@ -111,9 +111,6 @@ function renderDashboard() {
   const showMyOnly = document.getElementById("my-only-toggle").checked;
   const hasAssignments = !!(myStaff && myStaff.assignments && myStaff.assignments.length);
   const rows = showMyOnly && hasAssignments ? filterRowsForStaff(allRows, myStaff) : allRows;
-  rows.forEach((row, i) => {
-    row.rank = i + 1;
-  });
   const stats = summarize(rows);
 
   document.getElementById("summary-row").innerHTML = `
@@ -130,7 +127,18 @@ function renderDashboard() {
         : '<p class="empty-hint">まだ記録がありません。「撮影」タブから指示表を撮影してください。</p>';
     return;
   }
-  listEl.innerHTML = rows
+
+  // 「正常（交換不要）」の工具は一覧から外す。交換した直後の工具もここに含まれるため、
+  // 「交換した」を押すとその工具は一覧から消えるようになる。件数自体は上のタイルで分かる。
+  const displayRows = rows.filter((r) => r.level !== "ok");
+  if (!displayRows.length) {
+    listEl.innerHTML = '<p class="empty-hint">現在、交換が必要な工具はありません。🎉</p>';
+    return;
+  }
+  displayRows.forEach((row, i) => {
+    row.rank = i + 1;
+  });
+  listEl.innerHTML = displayRows
     .map((r) => {
       const pct = Math.max(0, Math.round(r.ratio * 100));
       const te = r.timeEstimate;
@@ -163,7 +171,7 @@ function renderDashboard() {
           </div>
           <div class="metrics">
             <div class="ratio">残り${pct}%</div>
-            <div class="counts">${r.count} / ${r.life}</div>
+            <div class="counts">${r.count} / ${r.life}${r.isEstimated ? '<span class="est-badge">推定</span>' : ""}</div>
           </div>
         </div>
         <button class="exchange-btn" data-product="${escapeHtml(r.productId)}" data-machine="${escapeHtml(r.machine)}" data-tool="${escapeHtml(r.toolNo)}">✅ 交換した</button>
@@ -1438,6 +1446,14 @@ async function init() {
   wireExchangeModal();
   wireWhoamiModal();
   wireBulkPasteModal();
+
+  // サイクルタイムから推定した使用数は時間とともに増えていくため、優先順位タブを
+  // 見ている間は定期的に再計算・再描画してカウンターが進んでいくようにする。
+  setInterval(() => {
+    if (!document.getElementById("view-dashboard").classList.contains("hidden")) {
+      renderDashboard();
+    }
+  }, 15000);
 
   if (!db.isReady()) {
     document.getElementById("setup-notice").classList.remove("hidden");

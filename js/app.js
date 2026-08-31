@@ -1307,6 +1307,15 @@ function renderAdminStaff() {
   });
 }
 
+async function handleSignOut() {
+  if (!confirm("ログアウトしますか？")) return;
+  try {
+    await db.signOutUser();
+  } catch (e) {
+    showToast("ログアウトに失敗しました: " + e.message, true);
+  }
+}
+
 function wireAdminEvents() {
   document.getElementById("btn-admin-new-product").addEventListener("click", () => {
     const id = prompt("新しい製品ID（英数字、後から変更不可）を入力してください");
@@ -1320,14 +1329,14 @@ function wireAdminEvents() {
     document.getElementById("admin-staff-list").prepend(buildAdminStaffCard(blank));
   });
 
-  document.getElementById("btn-signout").addEventListener("click", async () => {
-    if (!confirm("ログアウトしますか？")) return;
-    try {
-      await db.signOutUser();
-    } catch (e) {
-      showToast("ログアウトに失敗しました: " + e.message, true);
-    }
+  document.getElementById("btn-signout").addEventListener("click", handleSignOut);
+}
+
+function wireHeaderActions() {
+  document.getElementById("btn-header-refresh").addEventListener("click", () => {
+    window.location.reload();
   });
+  document.getElementById("btn-header-signout").addEventListener("click", handleSignOut);
 }
 
 // ---------- ログインゲート ----------
@@ -1446,6 +1455,7 @@ async function init() {
   wireExchangeModal();
   wireWhoamiModal();
   wireBulkPasteModal();
+  wireHeaderActions();
 
   // サイクルタイムから推定した使用数は時間とともに増えていくため、優先順位タブを
   // 見ている間は定期的に再計算・再描画してカウンターが進んでいくようにする。

@@ -26,7 +26,11 @@
 
 <header class="app-header">
   <h1>刃物交換指示システム</h1>
-  <div id="connection-badge" class="badge badge-muted">接続確認中…</div>
+  <div class="header-actions">
+    <div id="connection-badge" class="badge badge-muted">接続確認中…</div>
+    <button id="btn-header-refresh" class="header-btn" title="最新の状態に更新">🔄 更新</button>
+    <button id="btn-header-signout" class="header-btn">ログアウト</button>
+  </div>
 </header>
 
 <main id="app-root">

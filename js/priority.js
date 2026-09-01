@@ -81,8 +81,17 @@ export function computePriorityList(products, latestScans, now = new Date()) {
         // （割合だけで「至急交換」なのに、時間ベースでは「今のシフト中は不要」といった
         //   矛盾した表示になるのを避けるため）。ただし寿命を使い切っている場合は
         //   時間の見積もりに関わらず常に至急扱いにする。
+        //
+        // 「交換した」を押した直後（またはカウンターを0付近で入力した直後）は、
+        // 寿命が短い工具だと時間ベースの見積もりだけでは「今のシフト中に交換が必要」
+        // と判定されてしまい、交換したはずの工具が優先順位から消えないことがある。
+        // 使用がほぼ0（1サイクル未満）のうちは、時間の見積もりに関わらず常に正常
+        // 扱いにする。時間経過とともにカウンターが実際に進み始めれば、通常どおり
+        // 時間ベースの判定に戻る。
         let level;
-        if (timeEstimate) {
+        if (numCount < 1) {
+          level = "ok";
+        } else if (timeEstimate) {
           if (remaining <= 0) {
             level = "danger";
           } else if (timeEstimate.withinCurrentShift) {

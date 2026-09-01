@@ -166,7 +166,7 @@ export async function deleteStaff(staffId) {
   await remove(ref(db, `staff/${staffId}`));
 }
 
-// ---- スキャン結果（撮影→OCR確認後に保存する使用数記録） ----
+// ---- スキャン結果（入力確認後に保存する使用数記録） ----
 
 export async function submitScan({ productId, machine, capturedBy, readings }) {
   const db = getDb();

@@ -1,26 +1,20 @@
 import * as db from "./db.js";
 import { computePriorityList, summarize } from "./priority.js";
-import { fileToCanvas, warpToRect, sliceGridCells, recognizeGrid } from "./ocr.js";
 import { formatDuration, formatDateTime } from "./schedule.js";
 
 let products = [];
 let latestScans = new Map();
 let staffList = [];
 let myOnlyToggleInitialized = false;
+// 「担当別」タブから特定の担当者の一覧へジャンプしたときに設定される（ページ内の一時的な状態）
+let viewingStaffId = null;
 
 const OTHER_STAFF_VALUE = "__other__";
 
 const capture = {
   product: null,
   capturedBy: "",
-  sourceCanvas: null,
-  tappedPoints: [],
-  straightCanvas: null,
-  ocrResults: null,
 };
-
-const tapCanvas = document.getElementById("tap-canvas");
-const tapCtx = tapCanvas.getContext("2d");
 
 // ---------- 共通ユーティリティ ----------
 
@@ -42,14 +36,19 @@ function setBadge(text, kind) {
 
 // ---------- タブ切り替え ----------
 
+function switchToView(view) {
+  document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  ["dashboard", "staff-summary", "capture", "history", "admin"].forEach((v) => {
+    document.getElementById(`view-${v}`).classList.toggle("hidden", v !== view);
+  });
+}
+
 document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    const view = btn.dataset.view;
-    ["dashboard", "staff-summary", "capture", "history", "admin"].forEach((v) => {
-      document.getElementById(`view-${v}`).classList.toggle("hidden", v !== view);
-    });
+    // タブバーから直接移動した場合は「他の人の担当分を見る」モードを解除する
+    viewingStaffId = null;
+    switchToView(btn.dataset.view);
+    renderDashboard();
   });
 });
 
@@ -103,14 +102,36 @@ function renderWhoamiBar(myStaff) {
   }
 }
 
+// 「担当別」タブから他の担当者の一覧へジャンプしたときは、自分の設定（自分の担当分だけ表示等）
+// には触れず、その担当者だけに絞った一覧を一時的に表示する。
 function renderDashboard() {
-  const myStaff = getMyStaff();
-  renderWhoamiBar(myStaff);
-
   const allRows = computePriorityList(products, latestScans);
-  const showMyOnly = document.getElementById("my-only-toggle").checked;
-  const hasAssignments = !!(myStaff && myStaff.assignments && myStaff.assignments.length);
-  const rows = showMyOnly && hasAssignments ? filterRowsForStaff(allRows, myStaff) : allRows;
+  const viewingStaff = viewingStaffId ? staffList.find((s) => s.id === viewingStaffId) : null;
+  if (viewingStaffId && !viewingStaff) viewingStaffId = null; // 削除済みなどの場合は解除
+
+  document.getElementById("viewing-staff-bar").classList.toggle("hidden", !viewingStaff);
+  document.getElementById("whoami-bar").classList.toggle("hidden", !!viewingStaff);
+  document.getElementById("my-only-toggle-wrap").classList.toggle("hidden", !!viewingStaff);
+
+  let rows;
+  let isFiltered;
+  let emptyFilteredMessage;
+
+  if (viewingStaff) {
+    document.getElementById("viewing-staff-label").textContent = `👤 ${viewingStaff.name} さんの担当分`;
+    rows = filterRowsForStaff(allRows, viewingStaff);
+    isFiltered = true;
+    emptyFilteredMessage = `${viewingStaff.name}さんの担当分の記録がありません。担当製品の設定をご確認ください。`;
+  } else {
+    const myStaff = getMyStaff();
+    renderWhoamiBar(myStaff);
+    const showMyOnly = document.getElementById("my-only-toggle").checked;
+    const hasAssignments = !!(myStaff && myStaff.assignments && myStaff.assignments.length);
+    isFiltered = showMyOnly && hasAssignments;
+    rows = isFiltered ? filterRowsForStaff(allRows, myStaff) : allRows;
+    emptyFilteredMessage = "あなたの担当分の記録がありません。担当製品の設定をご確認ください。";
+  }
+
   const stats = summarize(rows);
 
   document.getElementById("summary-row").innerHTML = `
@@ -122,9 +143,9 @@ function renderDashboard() {
   const listEl = document.getElementById("priority-list");
   if (!rows.length) {
     listEl.innerHTML =
-      showMyOnly && hasAssignments && allRows.length
-        ? '<p class="empty-hint">あなたの担当分の記録がありません。担当製品の設定をご確認ください。</p>'
-        : '<p class="empty-hint">まだ記録がありません。「撮影」タブから指示表を撮影してください。</p>';
+      isFiltered && allRows.length
+        ? `<p class="empty-hint">${escapeHtml(emptyFilteredMessage)}</p>`
+        : '<p class="empty-hint">まだ記録がありません。「入力」タブから使用数を入力してください。</p>';
     return;
   }
 
@@ -204,16 +225,36 @@ function renderStaffSummary() {
   container.innerHTML = summaries
     .map(
       ({ staff, stats }) => `
-      <div class="staff-summary-card">
+      <button type="button" class="staff-summary-card" data-staff-id="${escapeHtml(staff.id)}">
         <div class="staff-summary-name">👤 ${escapeHtml(staff.name)}</div>
         <div class="staff-summary-counts">
           <span class="count-chip danger">🔴 至急 ${stats.danger}</span>
           <span class="count-chip warning">🟡 まもなく ${stats.warning}</span>
           <span class="count-chip ok">🟢 正常 ${stats.ok}</span>
         </div>
-      </div>`
+      </button>`
     )
     .join("");
+}
+
+// 「担当別」タブで担当者の名前を押すと、その人の担当分だけに絞った優先順位一覧へジャンプする
+function viewStaffPriorities(staffId) {
+  viewingStaffId = staffId;
+  switchToView("dashboard");
+  renderDashboard();
+}
+
+function wireStaffSummaryEvents() {
+  document.getElementById("staff-summary-list").addEventListener("click", (evt) => {
+    const card = evt.target.closest(".staff-summary-card");
+    if (!card) return;
+    viewStaffPriorities(card.dataset.staffId);
+  });
+
+  document.getElementById("btn-viewing-staff-close").addEventListener("click", () => {
+    viewingStaffId = null;
+    renderDashboard();
+  });
 }
 
 // 「交換した」ボタン：担当者を一覧から選んでもらい、その工具・機械の使用数だけを0に戻して送信する。
@@ -406,7 +447,7 @@ function renderHistory(scans) {
     .join("");
 }
 
-// ---------- 撮影フロー ----------
+// ---------- 入力フロー ----------
 
 function populateProductSelect() {
   const sel = document.getElementById("product-select");
@@ -510,126 +551,37 @@ function wireStaffSelect() {
 }
 
 function showCaptureStep(name) {
-  ["select", "corners", "ocr", "review", "done"].forEach((s) => {
+  ["select", "review", "done"].forEach((s) => {
     document.getElementById(`capture-step-${s}`).classList.toggle("hidden", s !== name);
   });
-}
-
-function drawSourceWithMarkers() {
-  tapCtx.drawImage(capture.sourceCanvas, 0, 0);
-  capture.tappedPoints.forEach((p, i) => {
-    tapCtx.beginPath();
-    tapCtx.arc(p.x, p.y, 12, 0, Math.PI * 2);
-    tapCtx.fillStyle = "rgba(230,50,50,0.85)";
-    tapCtx.fill();
-    tapCtx.fillStyle = "#fff";
-    tapCtx.font = "bold 18px sans-serif";
-    tapCtx.textAlign = "center";
-    tapCtx.textBaseline = "middle";
-    tapCtx.fillText(String(i + 1), p.x, p.y);
-  });
-  if (capture.tappedPoints.length === 4) {
-    tapCtx.strokeStyle = "rgba(230,50,50,0.9)";
-    tapCtx.lineWidth = 3;
-    tapCtx.beginPath();
-    capture.tappedPoints.forEach((p, i) => (i === 0 ? tapCtx.moveTo(p.x, p.y) : tapCtx.lineTo(p.x, p.y)));
-    tapCtx.closePath();
-    tapCtx.stroke();
-  }
-}
-
-function canvasPointFromEvent(evt) {
-  const rect = tapCanvas.getBoundingClientRect();
-  const scaleX = tapCanvas.width / rect.width;
-  const scaleY = tapCanvas.height / rect.height;
-  return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY };
-}
-
-tapCanvas.addEventListener("click", (evt) => {
-  if (capture.tappedPoints.length >= 4) return;
-  capture.tappedPoints.push(canvasPointFromEvent(evt));
-  drawSourceWithMarkers();
-  document.getElementById("btn-corners-confirm").disabled = capture.tappedPoints.length !== 4;
-});
-
-function updateOcrProgress(done, total) {
-  const pct = total ? Math.round((done / total) * 100) : 0;
-  document.getElementById("ocr-progress-bar").style.width = `${pct}%`;
-  document.getElementById("ocr-progress-text").textContent = `${done} / ${total}`;
 }
 
 function machineNames(product) {
   return (product.machines || []).map((m) => (typeof m === "string" ? m : m.name));
 }
 
-async function runOcr() {
-  showCaptureStep("ocr");
-  updateOcrProgress(0, 1);
-  const product = capture.product;
-  const rowLabels = product.tools.map((t) => t.no);
-  const colLabels = machineNames(product);
-  const straightW = colLabels.length * 160;
-  const straightH = rowLabels.length * 70;
-
-  try {
-    capture.straightCanvas = warpToRect(capture.sourceCanvas, capture.tappedPoints, straightW, straightH);
-    const cells = sliceGridCells(capture.straightCanvas, rowLabels.length, colLabels.length, rowLabels, colLabels);
-    capture.ocrResults = await recognizeGrid(cells, updateOcrProgress);
-    setReviewStepMode("ocr");
-    buildEntryTable(capture.ocrResults);
-    showCaptureStep("review");
-  } catch (e) {
-    showToast("認識に失敗しました: " + e.message, true);
-    showCaptureStep("corners");
-  }
-}
-
-function setReviewStepMode(mode) {
-  const title = document.getElementById("review-step-title");
-  const hint = document.getElementById("review-step-hint");
-  if (mode === "manual") {
-    title.textContent = "工具指示表に使用数を入力";
-    hint.textContent =
-      "各NC機の欄に現在の使用数を入力してください。前回の値が最初から入っています。変更がない機械はそのままで構いません。";
-  } else {
-    title.textContent = "内容を確認・修正して送信";
-    hint.textContent = "AIによる読み取り結果です。数字が違う場合は必ず修正してください。信頼度が低いセルは赤枠で表示されます。";
-  }
-}
-
-// ocrResults が null の場合は「表に直接入力」モード（前回値を初期値として編集する）。
-// machineFilter を渡すと、手入力モード限定でその機械の列だけを表示する
+// machineFilter を渡すと、その機械の列だけを表示する
 // （担当者に担当NC機が登録されている場合、入力の手間を減らすため）。
-// 写真読み取りモードでは、紙に印刷された全NC機分をまとめて読み取っているため絞り込まない。
-function buildEntryTable(ocrResults, machineFilter) {
+function buildEntryTable(machineFilter) {
   const product = capture.product;
   const table = document.getElementById("review-table");
-  const resultMap = new Map();
-  if (ocrResults) ocrResults.forEach((r) => resultMap.set(`${r.row}:${r.col}`, r));
 
   const allMachines = machineNames(product);
-  const useFilter = !ocrResults && machineFilter && machineFilter.length;
+  const useFilter = machineFilter && machineFilter.length;
   const machines = useFilter ? allMachines.filter((m) => machineFilter.includes(m)) : allMachines;
 
   const headHtml = `<thead><tr><th>工具</th>${machines.map((m) => `<th>${escapeHtml(m)}</th>`).join("")}</tr></thead>`;
 
   const bodyRows = product.tools
-    .map((tool, rIdx) => {
+    .map((tool) => {
       const cells = machines
         .map((machine) => {
-          const cIdx = allMachines.indexOf(machine);
-          const ocr = resultMap.get(`${rIdx}:${cIdx}`);
           const prevScan = latestScans.get(`${product.id}::${machine}`);
           const prevVal = prevScan && prevScan.readings ? prevScan.readings[tool.no] : undefined;
           const hasPrev = prevVal !== undefined && prevVal !== null && prevVal !== "";
-          const lowConf = ocr && ocr.text && ocr.confidence < 60 ? "low-confidence" : "";
-          // OCRモード：読み取り結果を初期値にし、前回値は参考表示のみ
-          // 手入力モード：前回値をそのまま初期値にして編集してもらう
-          const initialValue = ocr ? ocr.text : hasPrev ? String(prevVal) : "";
-          const prevHtml = ocr && hasPrev ? `<span class="prev-hint">前回:${escapeHtml(prevVal)}</span>` : "";
+          const initialValue = hasPrev ? String(prevVal) : "";
           return `<td>
-            <input type="text" inputmode="numeric" class="${lowConf}" data-tool="${escapeHtml(tool.no)}" data-machine="${escapeHtml(machine)}" value="${escapeHtml(initialValue)}" />
-            ${prevHtml}
+            <input type="text" inputmode="numeric" data-tool="${escapeHtml(tool.no)}" data-machine="${escapeHtml(machine)}" value="${escapeHtml(initialValue)}" />
           </td>`;
         })
         .join("");
@@ -654,12 +606,10 @@ function startManualEntry() {
     return;
   }
   capture.capturedBy = name;
-  capture.ocrResults = null;
 
   const machineFilter = getMachineFilterForSelection();
 
-  setReviewStepMode("manual");
-  buildEntryTable(null, machineFilter);
+  buildEntryTable(machineFilter);
   showCaptureStep("review");
 }
 
@@ -718,57 +668,11 @@ async function submitReview() {
 }
 
 function resetCaptureFlow() {
-  capture.sourceCanvas = null;
-  capture.tappedPoints = [];
-  capture.straightCanvas = null;
-  capture.ocrResults = null;
   showCaptureStep("select");
 }
 
 function wireCaptureEvents() {
-  document.getElementById("btn-take-photo").addEventListener("click", () => {
-    const productId = document.getElementById("product-select").value;
-    if (!productId) {
-      showToast("製品を選択してください", true);
-      return;
-    }
-    if (!requireCapturedBy()) return;
-    document.getElementById("file-input").click();
-  });
-
   document.getElementById("btn-manual-entry").addEventListener("click", startManualEntry);
-
-  document.getElementById("file-input").addEventListener("change", async (evt) => {
-    const file = evt.target.files[0];
-    evt.target.value = "";
-    if (!file) return;
-
-    const productId = document.getElementById("product-select").value;
-    capture.product = products.find((p) => p.id === productId);
-    const name = requireCapturedBy();
-    if (!capture.product) {
-      showToast("製品を選択してください", true);
-      return;
-    }
-    if (!name) return;
-    capture.capturedBy = name;
-
-    capture.sourceCanvas = await fileToCanvas(file);
-    capture.tappedPoints = [];
-    tapCanvas.width = capture.sourceCanvas.width;
-    tapCanvas.height = capture.sourceCanvas.height;
-    drawSourceWithMarkers();
-    document.getElementById("btn-corners-confirm").disabled = true;
-    showCaptureStep("corners");
-  });
-
-  document.getElementById("btn-corners-reset").addEventListener("click", () => {
-    capture.tappedPoints = [];
-    drawSourceWithMarkers();
-    document.getElementById("btn-corners-confirm").disabled = true;
-  });
-
-  document.getElementById("btn-corners-confirm").addEventListener("click", runOcr);
   document.getElementById("btn-review-cancel").addEventListener("click", resetCaptureFlow);
   document.getElementById("btn-review-submit").addEventListener("click", submitReview);
   document.getElementById("btn-done-restart").addEventListener("click", resetCaptureFlow);
@@ -1456,6 +1360,7 @@ async function init() {
   wireWhoamiModal();
   wireBulkPasteModal();
   wireHeaderActions();
+  wireStaffSummaryEvents();
 
   // サイクルタイムから推定した使用数は時間とともに増えていくため、優先順位タブを
   // 見ている間は定期的に再計算・再描画してカウンターが進んでいくようにする。

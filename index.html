@@ -46,6 +46,10 @@
 
   <!-- ダッシュボード -->
   <section id="view-dashboard" class="view">
+    <div id="viewing-staff-bar" class="whoami-bar hidden">
+      <span id="viewing-staff-label"></span>
+      <button id="btn-viewing-staff-close" class="link-btn">閉じる</button>
+    </div>
     <div id="whoami-bar" class="whoami-bar">
       <span id="whoami-label"></span>
       <button id="btn-whoami-change" class="link-btn">変更</button>
@@ -74,43 +78,21 @@
     </div>
   </div>
 
-  <!-- 撮影 -->
+  <!-- 入力 -->
   <section id="view-capture" class="view hidden">
     <div id="capture-step-select" class="capture-step">
-      <h2>1. 担当者を選んで入力方法を選ぶ</h2>
+      <h2>1. 担当者と製品を選ぶ</h2>
       <label class="field-label">担当者</label>
       <select id="staff-select" class="big-select"></select>
       <input id="capturedBy-other-input" type="text" class="text-input hidden" placeholder="お名前を入力" />
       <label class="field-label">製品</label>
       <select id="product-select" class="big-select"></select>
-      <button id="btn-take-photo" class="primary-btn">📷 写真で読み取る</button>
-      <button id="btn-manual-entry" class="secondary-btn">⌨️ 表に直接入力する</button>
-      <input id="file-input" type="file" accept="image/*" capture="environment" class="hidden-input" />
-    </div>
-
-    <div id="capture-step-corners" class="capture-step hidden">
-      <h2>2. 使用数を書く欄の四隅をタップ</h2>
-      <p class="hint-text">左上 → 右上 → 右下 → 左下 の順に、数字を書く表の四隅をタップしてください。（工具名・型式などの列は含めない）</p>
-      <div class="canvas-wrap">
-        <canvas id="tap-canvas"></canvas>
-      </div>
-      <div class="row-buttons">
-        <button id="btn-corners-reset" class="secondary-btn">やり直す</button>
-        <button id="btn-corners-confirm" class="primary-btn" disabled>この範囲で認識する</button>
-      </div>
-    </div>
-
-    <div id="capture-step-ocr" class="capture-step hidden">
-      <h2>3. 数字を認識中…</h2>
-      <div class="progress-wrap">
-        <div id="ocr-progress-bar" class="progress-bar"></div>
-      </div>
-      <p id="ocr-progress-text" class="hint-text">0 / 0</p>
+      <button id="btn-manual-entry" class="primary-btn">⌨️ 表に直接入力する</button>
     </div>
 
     <div id="capture-step-review" class="capture-step hidden">
-      <h2 id="review-step-title">4. 内容を確認・修正して送信</h2>
-      <p id="review-step-hint" class="hint-text">AIによる読み取り結果です。数字が違う場合は必ず修正してください。信頼度が低いセルは赤枠で表示されます。</p>
+      <h2 id="review-step-title">2. 内容を確認・修正して送信</h2>
+      <p id="review-step-hint" class="hint-text">各NC機の欄に現在の使用数を入力してください。前回の値が最初から入っています。変更がない機械はそのままで構いません。</p>
       <div class="table-scroll">
         <table id="review-table" class="review-table"></table>
       </div>
@@ -124,14 +106,14 @@
       <div class="card success-card">
         <h2>送信しました</h2>
         <p>優先順位一覧に反映されました。</p>
-        <button id="btn-done-restart" class="primary-btn">続けて撮影する</button>
+        <button id="btn-done-restart" class="primary-btn">続けて入力する</button>
       </div>
     </div>
   </section>
 
   <!-- 履歴 -->
   <section id="view-history" class="view hidden">
-    <h2>撮影履歴</h2>
+    <h2>入力履歴</h2>
     <div id="history-list" class="history-list"></div>
   </section>
 
@@ -147,7 +129,7 @@
   <!-- マスタ管理 -->
   <section id="view-admin" class="view hidden">
     <h2>担当者管理</h2>
-    <p class="hint-text">担当者ごとに担当製品・担当NC機を登録しておくと、「撮影」タブで名前を選ぶだけで製品とNC機が自動で設定されます。異動などがあれば、いつでもここで変更できます。</p>
+    <p class="hint-text">担当者ごとに担当製品・担当NC機を登録しておくと、「入力」タブで名前を選ぶだけで製品とNC機が自動で設定されます。異動などがあれば、いつでもここで変更できます。</p>
     <div class="row-buttons">
       <button id="btn-admin-new-staff" class="secondary-btn">＋ 担当者を追加</button>
     </div>
@@ -171,7 +153,7 @@
     <span class="tab-icon">👥</span><span>担当別</span>
   </button>
   <button class="tab-btn" data-view="capture">
-    <span class="tab-icon">📷</span><span>撮影</span>
+    <span class="tab-icon">⌨️</span><span>入力</span>
   </button>
   <button class="tab-btn" data-view="history">
     <span class="tab-icon">🕘</span><span>履歴</span>
@@ -224,7 +206,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

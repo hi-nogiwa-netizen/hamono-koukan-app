@@ -1,7 +1,7 @@
 {
   "name": "刃物交換指示システム",
   "short_name": "刃物交換指示",
-  "description": "刃物交換指示表を撮影してAIで読み取り、工具の交換優先順位を工場全体で共有するアプリ",
+  "description": "刃物交換指示表の使用数を入力し、工具の交換優先順位を工場全体で共有するアプリ",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

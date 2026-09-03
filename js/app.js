@@ -861,15 +861,15 @@ function buildAdminProductCard(product) {
   card.dataset.recordId = product.id || "";
   card.dataset.recordName = product.name || product.id || "";
 
-  const header = document.createElement("div");
-  header.className = "admin-card-header";
+  const cardHeader = document.createElement("div");
+  cardHeader.className = "admin-card-header";
   const selectCb = document.createElement("input");
   selectCb.type = "checkbox";
   selectCb.className = "admin-card-select";
   const title = document.createElement("h3");
   title.textContent = product.name;
-  header.append(selectCb, title);
-  card.appendChild(header);
+  cardHeader.append(selectCb, title);
+  card.appendChild(cardHeader);
 
   const idField = mkField("製品ID（変更不可）", product.id, { readonly: true });
   const nameField = mkField("製品名", product.name);

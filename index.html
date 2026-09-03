@@ -128,19 +128,43 @@
 
   <!-- マスタ管理 -->
   <section id="view-admin" class="view hidden">
-    <h2>担当者管理</h2>
-    <p class="hint-text">担当者ごとに担当製品・担当NC機を登録しておくと、「入力」タブで名前を選ぶだけで製品とNC機が自動で設定されます。異動などがあれば、いつでもここで変更できます。</p>
-    <div class="row-buttons">
-      <button id="btn-admin-new-staff" class="secondary-btn">＋ 担当者を追加</button>
+    <div class="admin-subtabs">
+      <button type="button" class="admin-subtab-btn active" data-admin-view="staff">👥 担当者管理</button>
+      <button type="button" class="admin-subtab-btn" data-admin-view="product">🔧 製品・工具マスタ</button>
     </div>
-    <div id="admin-staff-list" class="admin-product-list"></div>
 
-    <h2>製品・工具マスタ管理</h2>
+    <div id="admin-view-staff" class="admin-subview">
+      <p class="hint-text">担当者ごとに担当製品・担当NC機を登録しておくと、「入力」タブで名前を選ぶだけで製品とNC機が自動で設定されます。異動などがあれば、いつでもここで変更できます。</p>
+      <div class="row-buttons">
+        <button id="btn-admin-new-staff" class="secondary-btn">＋ 担当者を追加</button>
+      </div>
+      <div id="admin-staff-list" class="admin-product-list"></div>
+      <div class="admin-bulk-bar">
+        <button id="btn-admin-save-staff" class="primary-btn">💾 担当者の変更をまとめて保存</button>
+        <div class="admin-bulk-delete-row">
+          <button id="btn-admin-select-all-staff" class="link-btn">全て選択/解除</button>
+          <button id="btn-admin-delete-staff" class="danger-btn">選択した担当者を削除</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="admin-view-product" class="admin-subview hidden">
+      <div class="row-buttons">
+        <button id="btn-admin-new-product" class="secondary-btn">＋ 製品を追加</button>
+      </div>
+      <div id="admin-product-list" class="admin-product-list"></div>
+      <div class="admin-bulk-bar">
+        <button id="btn-admin-save-product" class="primary-btn">💾 製品の変更をまとめて保存</button>
+        <div class="admin-bulk-delete-row">
+          <button id="btn-admin-select-all-product" class="link-btn">全て選択/解除</button>
+          <button id="btn-admin-delete-product" class="danger-btn">選択した製品を削除</button>
+        </div>
+      </div>
+    </div>
+
     <div class="row-buttons">
-      <button id="btn-admin-new-product" class="secondary-btn">＋ 製品を追加</button>
       <button id="btn-signout" class="secondary-btn">ログアウト</button>
     </div>
-    <div id="admin-product-list" class="admin-product-list"></div>
   </section>
 
 </main>

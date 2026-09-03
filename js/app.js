@@ -858,10 +858,18 @@ function wireBulkPasteModal() {
 function buildAdminProductCard(product) {
   const card = document.createElement("div");
   card.className = "admin-product-card";
+  card.dataset.recordId = product.id || "";
+  card.dataset.recordName = product.name || product.id || "";
 
+  const header = document.createElement("div");
+  header.className = "admin-card-header";
+  const selectCb = document.createElement("input");
+  selectCb.type = "checkbox";
+  selectCb.className = "admin-card-select";
   const title = document.createElement("h3");
   title.textContent = product.name;
-  card.appendChild(title);
+  header.append(selectCb, title);
+  card.appendChild(header);
 
   const idField = mkField("製品ID（変更不可）", product.id, { readonly: true });
   const nameField = mkField("製品名", product.name);
@@ -955,41 +963,31 @@ function buildAdminProductCard(product) {
   bulkOpenBtn.addEventListener("click", () => openBulkPasteModal(addToolRow));
   card.appendChild(bulkOpenBtn);
 
+  // このカード自身は保存ボタンを持たず、「製品の変更をまとめて保存」から呼び出される。
+  card.getData = () => ({
+    id: product.id,
+    name: nameField.input.value.trim() || product.id,
+    machines: machineRows
+      .map((r) => ({
+        name: r.nameInp.value.trim(),
+        cycleTimeSec: r.cycleInp.value === "" ? null : Number(r.cycleInp.value) || null,
+      }))
+      .filter((m) => m.name),
+    dailyQty: Number(dailyField.input.value) || 0,
+    tools: rows
+      .map((r) => ({
+        no: r.noInp.value.trim(),
+        process: r.procInp.value.trim(),
+        maker: r.makerInp.value.trim(),
+        model: r.modelInp.value.trim(),
+        processCount: Number(r.pcInp.value) || 1,
+        life: Number(r.lifeInp.value) || 0,
+      }))
+      .filter((t) => t.no),
+  });
+
   const actions = document.createElement("div");
   actions.className = "admin-actions";
-
-  const saveBtn = document.createElement("button");
-  saveBtn.className = "primary-btn";
-  saveBtn.textContent = "保存";
-  saveBtn.addEventListener("click", async () => {
-    const updated = {
-      id: product.id,
-      name: nameField.input.value.trim() || product.id,
-      machines: machineRows
-        .map((r) => ({
-          name: r.nameInp.value.trim(),
-          cycleTimeSec: r.cycleInp.value === "" ? null : Number(r.cycleInp.value) || null,
-        }))
-        .filter((m) => m.name),
-      dailyQty: Number(dailyField.input.value) || 0,
-      tools: rows
-        .map((r) => ({
-          no: r.noInp.value.trim(),
-          process: r.procInp.value.trim(),
-          maker: r.makerInp.value.trim(),
-          model: r.modelInp.value.trim(),
-          processCount: Number(r.pcInp.value) || 1,
-          life: Number(r.lifeInp.value) || 0,
-        }))
-        .filter((t) => t.no),
-    };
-    try {
-      await db.saveProduct(updated);
-      showToast("保存しました");
-    } catch (e) {
-      showToast("保存に失敗しました: " + e.message, true);
-    }
-  });
 
   const dupBtn = document.createElement("button");
   dupBtn.className = "secondary-btn";
@@ -1013,23 +1011,10 @@ function buildAdminProductCard(product) {
       tools: (product.tools || []).map((t) => ({ ...t })),
     };
     document.getElementById("admin-product-list").prepend(buildAdminProductCard(clone));
-    showToast("複製しました。内容を確認して「保存」を押してください");
+    showToast("複製しました。内容を確認して「変更をまとめて保存」を押してください");
   });
 
-  const delBtn = document.createElement("button");
-  delBtn.className = "secondary-btn";
-  delBtn.textContent = "製品を削除";
-  delBtn.addEventListener("click", async () => {
-    if (!confirm(`「${product.name}」を削除しますか？`)) return;
-    try {
-      await db.deleteProduct(product.id);
-      showToast("削除しました");
-    } catch (e) {
-      showToast("削除に失敗しました: " + e.message, true);
-    }
-  });
-
-  actions.append(saveBtn, dupBtn, delBtn);
+  actions.append(dupBtn);
   card.appendChild(actions);
   return card;
 }
@@ -1056,10 +1041,18 @@ function renderAdmin() {
 function buildAdminStaffCard(staffMember) {
   const card = document.createElement("div");
   card.className = "admin-product-card";
+  card.dataset.recordId = staffMember.id || "";
+  card.dataset.recordName = staffMember.name || "(新規担当者)";
 
+  const header = document.createElement("div");
+  header.className = "admin-card-header";
+  const selectCb = document.createElement("input");
+  selectCb.type = "checkbox";
+  selectCb.className = "admin-card-select";
   const title = document.createElement("h3");
   title.textContent = staffMember.name || "(新規担当者)";
-  card.appendChild(title);
+  header.append(selectCb, title);
+  card.appendChild(header);
 
   const nameField = mkField("氏名", staffMember.name || "");
   card.appendChild(nameField.wrap);
@@ -1143,56 +1136,22 @@ function buildAdminStaffCard(staffMember) {
   addAssignmentBtn.addEventListener("click", () => addAssignmentBlock(null));
   card.appendChild(addAssignmentBtn);
 
-  const actions = document.createElement("div");
-  actions.className = "admin-actions";
-
-  const saveBtn = document.createElement("button");
-  saveBtn.className = "primary-btn";
-  saveBtn.textContent = "保存";
-  saveBtn.addEventListener("click", async () => {
-    const name = nameField.input.value.trim();
-    if (!name) {
-      showToast("氏名を入力してください", true);
-      return;
-    }
-    const assignments = assignmentEntries
+  // このカード自身は保存・削除ボタンを持たず、下部の「まとめて保存」「選択して削除」から扱う。
+  card.getData = () => ({
+    id: staffMember.id || null,
+    name: nameField.input.value.trim(),
+    assignments: assignmentEntries
       .map((e) => ({
         productId: e.productSelect.value,
         machines: Array.from(e.checkboxGroup.querySelectorAll("input:checked")).map((cb) => cb.value),
       }))
-      .filter((a) => a.productId);
-    try {
-      if (staffMember.id) {
-        await db.saveStaff({ id: staffMember.id, name, assignments });
-      } else {
-        const created = await db.addStaff({ name, assignments });
-        staffMember.id = created.id;
-      }
-      showToast("保存しました");
-    } catch (e) {
-      showToast("保存に失敗しました: " + e.message, true);
-    }
+      .filter((a) => a.productId),
   });
+  card.applyCreatedId = (id) => {
+    staffMember.id = id;
+    card.dataset.recordId = id;
+  };
 
-  const delBtn = document.createElement("button");
-  delBtn.className = "secondary-btn";
-  delBtn.textContent = "削除";
-  delBtn.addEventListener("click", async () => {
-    if (!staffMember.id) {
-      card.remove();
-      return;
-    }
-    if (!confirm(`「${staffMember.name}」を削除しますか？`)) return;
-    try {
-      await db.deleteStaff(staffMember.id);
-      showToast("削除しました");
-    } catch (e) {
-      showToast("削除に失敗しました: " + e.message, true);
-    }
-  });
-
-  actions.append(saveBtn, delBtn);
-  card.appendChild(actions);
   return card;
 }
 
@@ -1220,7 +1179,88 @@ async function handleSignOut() {
   }
 }
 
+// ---------- マスタ管理：まとめて保存／選択して削除 ----------
+// 各カードは自分の保存・削除ボタンを持たない。一覧の下にあるボタン1つで、
+// 表示されている全カードの内容をまとめて保存する（変更した分だけ選んで押す手間をなくす）。
+
+async function saveAllCards(listId, buttonId, label) {
+  const container = document.getElementById(listId);
+  const cards = Array.from(container.children).filter((c) => typeof c.getData === "function");
+  if (!cards.length) {
+    showToast(`保存する${label}がありません`, true);
+    return;
+  }
+  const btn = document.getElementById(buttonId);
+  btn.disabled = true;
+  let okCount = 0;
+  const failed = [];
+  for (const card of cards) {
+    const data = card.getData();
+    try {
+      if (listId === "admin-product-list") {
+        await db.saveProduct(data);
+      } else if (data.id) {
+        await db.saveStaff(data);
+      } else {
+        if (!data.name) throw new Error("氏名を入力してください");
+        const created = await db.addStaff({ name: data.name, assignments: data.assignments });
+        card.applyCreatedId(created.id);
+      }
+      okCount++;
+    } catch (e) {
+      failed.push(`${data.name || data.id}: ${e.message}`);
+    }
+  }
+  btn.disabled = false;
+  if (failed.length) {
+    showToast(`${okCount}件保存しました。失敗: ${failed.join(" / ")}`, true);
+  } else {
+    showToast(`${okCount}件保存しました`);
+  }
+}
+
+async function deleteSelectedCards(listId, cardClass, deleteFn, label) {
+  const container = document.getElementById(listId);
+  const checked = Array.from(container.querySelectorAll(".admin-card-select:checked"));
+  if (!checked.length) {
+    showToast(`削除する${label}を選択してください`, true);
+    return;
+  }
+  const cards = checked.map((cb) => cb.closest(`.${cardClass}`));
+  const names = cards.map((c) => c.dataset.recordName || c.dataset.recordId || "?");
+  if (!confirm(`選択した${cards.length}件を削除しますか？\n${names.join("、")}`)) return;
+
+  for (const card of cards) {
+    const id = card.dataset.recordId;
+    try {
+      if (id) await deleteFn(id);
+      card.remove();
+    } catch (e) {
+      showToast(`「${card.dataset.recordName}」の削除に失敗しました: ${e.message}`, true);
+    }
+  }
+  showToast("削除しました");
+}
+
+function wireSelectAllToggle(buttonId, listId) {
+  document.getElementById(buttonId).addEventListener("click", () => {
+    const boxes = Array.from(document.querySelectorAll(`#${listId} .admin-card-select`));
+    if (!boxes.length) return;
+    const allChecked = boxes.every((cb) => cb.checked);
+    boxes.forEach((cb) => (cb.checked = !allChecked));
+  });
+}
+
 function wireAdminEvents() {
+  document.querySelectorAll(".admin-subtab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".admin-subtab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      const view = btn.dataset.adminView;
+      document.getElementById("admin-view-staff").classList.toggle("hidden", view !== "staff");
+      document.getElementById("admin-view-product").classList.toggle("hidden", view !== "product");
+    });
+  });
+
   document.getElementById("btn-admin-new-product").addEventListener("click", () => {
     const id = prompt("新しい製品ID（英数字、後から変更不可）を入力してください");
     if (!id || !id.trim()) return;
@@ -1232,6 +1272,23 @@ function wireAdminEvents() {
     const blank = { id: null, name: "", assignments: [] };
     document.getElementById("admin-staff-list").prepend(buildAdminStaffCard(blank));
   });
+
+  document.getElementById("btn-admin-save-product").addEventListener("click", () =>
+    saveAllCards("admin-product-list", "btn-admin-save-product", "製品")
+  );
+  document.getElementById("btn-admin-save-staff").addEventListener("click", () =>
+    saveAllCards("admin-staff-list", "btn-admin-save-staff", "担当者")
+  );
+
+  document.getElementById("btn-admin-delete-product").addEventListener("click", () =>
+    deleteSelectedCards("admin-product-list", "admin-product-card", db.deleteProduct, "製品")
+  );
+  document.getElementById("btn-admin-delete-staff").addEventListener("click", () =>
+    deleteSelectedCards("admin-staff-list", "admin-product-card", db.deleteStaff, "担当者")
+  );
+
+  wireSelectAllToggle("btn-admin-select-all-product", "admin-product-list");
+  wireSelectAllToggle("btn-admin-select-all-staff", "admin-staff-list");
 
   document.getElementById("btn-signout").addEventListener("click", handleSignOut);
 }

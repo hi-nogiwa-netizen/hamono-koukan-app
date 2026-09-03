@@ -404,9 +404,62 @@ body {
 .count-chip.ok { background: var(--ok); }
 
 /* マスタ管理 */
+.admin-subtabs {
+  display: flex;
+  gap: 6px;
+  background: #eef2f6;
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 14px;
+}
+.admin-subtab-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 6px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.admin-subtab-btn.active { background: white; color: var(--brand); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+.admin-subview.hidden { display: none; }
+
 .admin-product-list { display: flex; flex-direction: column; gap: 12px; }
 .admin-product-card { background: var(--card-bg); border-radius: var(--radius); padding: 14px; }
 .admin-product-card h3 { margin: 0 0 8px; font-size: 16px; }
+.admin-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.admin-card-header input[type="checkbox"] { width: 20px; height: 20px; flex-shrink: 0; }
+.admin-card-header h3 { margin: 0; }
+
+.admin-bulk-bar {
+  position: sticky;
+  bottom: 64px;
+  margin-top: 14px;
+  padding: 12px;
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  box-shadow: 0 -2px 6px rgba(0,0,0,0.08);
+}
+.admin-bulk-bar .primary-btn { width: 100%; }
+.admin-bulk-delete-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+.danger-btn {
+  background: white;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
 .admin-field { margin-bottom: 10px; }
 .admin-field label { display: block; font-size: 12.5px; color: var(--text-muted); margin-bottom: 3px; }
 .admin-field input, .admin-field select { width: 100%; padding: 9px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: white; }

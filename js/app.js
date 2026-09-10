@@ -65,7 +65,7 @@ function isAssignedTo(staff, productId, machine) {
   if (!staff || !staff.assignments) return false;
   const assignment = staff.assignments.find((a) => a.productId === productId);
   if (!assignment) return false;
-  if (!assignment.machines || !assignment.machines.length) return true; // 未指定＝その製品の全機が対象
+  if (!assignment.machines || !assignment.machines.length) return false; // NC機を1台も選んでいなければ対象外
   return assignment.machines.includes(machine);
 }
 
@@ -1037,7 +1037,7 @@ function renderAdmin() {
 
 // 担当者は複数の製品を担当できる。assignments は
 // [{ productId, machines: [担当NC機名,...] }, ...] の配列。
-// machinesが空配列の場合は「その製品の全機が対象」の意味になる。
+// machinesが空配列の場合は「その製品はまだ対象外（NC機を1台も選んでいない）」の意味になる。
 function buildAdminStaffCard(staffMember) {
   const card = document.createElement("div");
   card.className = "admin-product-card";
@@ -1090,7 +1090,7 @@ function buildAdminStaffCard(staffMember) {
 
     const machineHint = document.createElement("p");
     machineHint.className = "hint-text";
-    machineHint.textContent = "担当NC機（何も選ばなければその製品の全機が対象になります）";
+    machineHint.textContent = "担当NC機（1台も選ばないと、この製品は担当対象外になります。必ず担当するNC機にチェックを入れてください）";
     block.insertBefore(machineHint, checkboxGroup);
 
     function renderMachines() {

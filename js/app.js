@@ -1,5 +1,5 @@
 import * as db from "./db.js";
-import { computePriorityList, summarize } from "./priority.js";
+import { computePriorityList, summarize, estimateCurrentCount } from "./priority.js";
 import { formatDuration, formatDateTime } from "./schedule.js";
 
 let products = [];
@@ -317,7 +317,26 @@ function wireExchangeModal() {
 
     const { productId, machine, toolNo } = pendingExchange;
     const scan = latestScans.get(`${productId}::${machine}`);
-    const readings = { ...(scan && scan.readings ? scan.readings : {}) };
+    const oldReadings = scan && scan.readings ? scan.readings : {};
+    const product = products.find((p) => p.id === productId);
+    const machineObj = product ? (product.machines || []).find((m) => (typeof m === "string" ? m : m.name) === machine) : null;
+    const cycleTimeSec = machineObj && typeof machineObj !== "string" ? machineObj.cycleTimeSec : null;
+
+    // この工具以外の使用数は、そのまま古い値をコピーすると、新しいscan（記録時刻=今）が
+    // できた瞬間に自動カウントアップの起算点がリセットされ、他の工具のカウンターが
+    // 一瞬巻き戻ってから、また最初から進み始めるように見えてしまう。
+    // そのため、古い値そのものではなく「今の推定値」を新しい基準値として引き継ぐ。
+    const readings = {};
+    Object.keys(oldReadings).forEach((no) => {
+      if (no === toolNo) return;
+      const tool = product ? product.tools.find((t) => t.no === no) : null;
+      if (!tool) {
+        readings[no] = oldReadings[no];
+        return;
+      }
+      const { numCount } = estimateCurrentCount(Number(oldReadings[no]), cycleTimeSec, scan.capturedAt, tool);
+      readings[no] = Math.round(numCount);
+    });
     readings[toolNo] = 0;
 
     const confirmBtn = document.getElementById("exchange-modal-confirm");

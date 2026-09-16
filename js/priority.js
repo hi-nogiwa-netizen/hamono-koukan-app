@@ -22,6 +22,23 @@ function machineCycleTimeSec(machine) {
   return typeof machine === "string" ? null : machine.cycleTimeSec || null;
 }
 
+// 確認済みの使用数（confirmedCount）に、記録時刻（capturedAt）からの経過稼働時間ぶんの
+// 推定使用数を加算する。サイクルタイム未設定・記録時刻不明などの場合はそのまま返す。
+// 「交換した」ボタン（他の工具の使用数だけを引き継いで新しいscanを作る処理）でも、
+// この関数を使って各工具の“今の推定値”を新しい基準値にすることで、カウンターが
+// 一瞬巻き戻って見える問題を避けている。
+export function estimateCurrentCount(confirmedCount, cycleTimeSec, capturedAt, tool, now = new Date()) {
+  if (!cycleTimeSec || typeof capturedAt !== "number") {
+    return { numCount: confirmedCount, isEstimated: false };
+  }
+  const elapsedSec = operatingSecondsElapsed(new Date(capturedAt), now);
+  if (elapsedSec <= 0) {
+    return { numCount: confirmedCount, isEstimated: false };
+  }
+  const estimatedAdditional = (elapsedSec / cycleTimeSec) * (tool.processCount || 1);
+  return { numCount: confirmedCount + estimatedAdditional, isEstimated: estimatedAdditional >= 1 };
+}
+
 // products: [{id, name, machines:[{name, cycleTimeSec}], dailyQty, tools:[{no, process, maker, model, processCount, life}]}]
 // latestScans: Map<`${productId}::${machine}`, {capturedAt, capturedBy, readings:{toolNo:count}}>
 // now: 現在時刻（テスト用に差し替え可能）
@@ -46,16 +63,7 @@ export function computePriorityList(products, latestScans, now = new Date()) {
         // サイクルタイムが分かっている機械は、最後に記録した時刻から今までの
         // 「稼働していた時間」をもとに、今どれくらい使われているはずかを推定し、
         // カウンターを自動的に進める（人が入力し直さなくても、時間経過とともに増えていく）。
-        let numCount = confirmedCount;
-        let isEstimated = false;
-        if (cycleTimeSec && typeof scan.capturedAt === "number") {
-          const elapsedSec = operatingSecondsElapsed(new Date(scan.capturedAt), now);
-          if (elapsedSec > 0) {
-            const estimatedAdditional = (elapsedSec / cycleTimeSec) * (tool.processCount || 1);
-            numCount = confirmedCount + estimatedAdditional;
-            isEstimated = estimatedAdditional >= 1;
-          }
-        }
+        const { numCount, isEstimated } = estimateCurrentCount(confirmedCount, cycleTimeSec, scan.capturedAt, tool, now);
 
         const remaining = tool.life - numCount;
         const ratio = tool.life > 0 ? remaining / tool.life : 0;

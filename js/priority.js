@@ -18,6 +18,31 @@ function machineName(machine) {
   return typeof machine === "string" ? machine : machine.name;
 }
 
+// 同じキーが複数あるときは最初の1件だけを残す。
+// 製品マスタに同じ工具No・同じNC機名が重複していても、同じ工具が二重に数えられたり、
+// 入力表で別の欄の古い値に上書きされたりしないようにするため。
+export function uniqueByKey(list, keyFn) {
+  const seen = new Set();
+  return (list || []).filter((item) => {
+    const key = keyFn(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// 2回以上出てくるキー（重複しているキー）の一覧を返す
+export function findDuplicateKeys(list, keyFn) {
+  const count = new Map();
+  (list || []).forEach((item) => {
+    const key = keyFn(item);
+    count.set(key, (count.get(key) || 0) + 1);
+  });
+  return Array.from(count.entries())
+    .filter(([, n]) => n > 1)
+    .map(([key]) => key);
+}
+
 function machineCycleTimeSec(machine) {
   return typeof machine === "string" ? null : machine.cycleTimeSec || null;
 }
@@ -48,13 +73,16 @@ export function computePriorityList(products, latestScans, now = new Date()) {
   const nextShiftEnd = currentShiftEnd ? currentOperatingSegmentEnd(currentShiftEnd) : null;
 
   for (const product of products) {
-    for (const machine of product.machines || []) {
+    // 同じNC機名・同じ工具Noが重複している場合は最初の1件だけを使う
+    const machineList = uniqueByKey(product.machines, machineName);
+    const toolList = uniqueByKey(product.tools, (t) => t.no);
+    for (const machine of machineList) {
       const name = machineName(machine);
       const cycleTimeSec = machineCycleTimeSec(machine);
       const scan = latestScans.get(`${product.id}::${name}`);
       if (!scan) continue;
 
-      for (const tool of product.tools) {
+      for (const tool of toolList) {
         const count = scan.readings ? scan.readings[tool.no] : undefined;
         if (count === undefined || count === null || count === "") continue;
 

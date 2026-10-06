@@ -93,6 +93,7 @@
     <div id="capture-step-review" class="capture-step hidden">
       <h2 id="review-step-title">2. 内容を確認・修正して送信</h2>
       <p id="review-step-hint" class="hint-text">各NC機の欄に現在の使用数を入力してください。前回の値が最初から入っています。変更がない機械はそのままで構いません。</p>
+      <p id="review-dup-warning" class="dup-warning hidden"></p>
       <div class="table-scroll">
         <table id="review-table" class="review-table"></table>
       </div>
@@ -106,6 +107,7 @@
       <div class="card success-card">
         <h2>送信しました</h2>
         <p>優先順位一覧に反映されました。</p>
+        <p id="done-summary" class="hint-text"></p>
         <button id="btn-done-restart" class="primary-btn">続けて入力する</button>
       </div>
     </div>
@@ -128,7 +130,7 @@
 
   <!-- マスタ管理 -->
   <section id="view-admin" class="view hidden">
-    <div class="admin-subtabs">
+    <div id="admin-subtabs" class="admin-subtabs">
       <button type="button" class="admin-subtab-btn active" data-admin-view="staff">👥 担当者管理</button>
       <button type="button" class="admin-subtab-btn" data-admin-view="product">🔧 製品・工具マスタ</button>
     </div>
@@ -141,6 +143,7 @@
       <div id="admin-staff-list" class="admin-product-list"></div>
       <div class="admin-bulk-bar">
         <button id="btn-admin-save-staff" class="primary-btn">💾 担当者の変更をまとめて保存</button>
+        <p class="hint-text admin-bulk-hint">チェックを入れていなくても、表示されている内容は全て保存されます。</p>
         <div class="admin-bulk-delete-row">
           <button id="btn-admin-select-all-staff" class="link-btn">全て選択/解除</button>
           <button id="btn-admin-delete-staff" class="danger-btn">選択した担当者を削除</button>
@@ -155,6 +158,7 @@
       <div id="admin-product-list" class="admin-product-list"></div>
       <div class="admin-bulk-bar">
         <button id="btn-admin-save-product" class="primary-btn">💾 製品の変更をまとめて保存</button>
+        <p class="hint-text admin-bulk-hint">チェックを入れていなくても、表示されている内容は全て保存されます。</p>
         <div class="admin-bulk-delete-row">
           <button id="btn-admin-select-all-product" class="link-btn">全て選択/解除</button>
           <button id="btn-admin-delete-product" class="danger-btn">選択した製品を削除</button>

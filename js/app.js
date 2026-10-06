@@ -1,5 +1,5 @@
 import * as db from "./db.js";
-import { computePriorityList, summarize, estimateCurrentCount } from "./priority.js";
+import { computePriorityList, summarize, estimateCurrentCount, uniqueByKey, findDuplicateKeys } from "./priority.js";
 import { formatDuration, formatDateTime } from "./schedule.js";
 
 let products = [];
@@ -32,6 +32,14 @@ function setBadge(text, kind) {
   const badge = document.getElementById("connection-badge");
   badge.textContent = text;
   badge.className = `badge badge-${kind}`;
+}
+
+// ヘッダーの実際の高さをCSS変数に反映する。端末のノッチ（safe-area）などで
+// 高さが変わっても、マスタ画面の固定タブがヘッダーの真下にぴったり収まるようにするため。
+function syncHeaderHeight() {
+  const header = document.querySelector(".app-header");
+  if (!header) return;
+  document.documentElement.style.setProperty("--header-h", `${header.offsetHeight}px`);
 }
 
 // ---------- タブ切り替え ----------
@@ -585,13 +593,27 @@ function buildEntryTable(machineFilter) {
   const product = capture.product;
   const table = document.getElementById("review-table");
 
-  const allMachines = machineNames(product);
+  // マスタに同じ工具No・同じNC機名が重複していると、同じ欄が複数でき、変更していない側の
+  // 古い値で上書きされてしまうため、入力表には最初の1件だけを出し、重複は警告で知らせる。
+  const dupTools = findDuplicateKeys(product.tools, (t) => t.no);
+  const dupMachines = findDuplicateKeys(machineNames(product), (m) => m);
+  const warnEl = document.getElementById("review-dup-warning");
+  const warnParts = [];
+  if (dupTools.length) warnParts.push(`工具No「${dupTools.join("、")}」`);
+  if (dupMachines.length) warnParts.push(`NC機名「${dupMachines.join("、")}」`);
+  warnEl.textContent = warnParts.length
+    ? `⚠ この製品のマスタに ${warnParts.join(" と ")} が重複しています。入力表には最初の1件だけを表示しています。「マスタ」の製品・工具マスタで重複を整理してください。`
+    : "";
+  warnEl.classList.toggle("hidden", !warnParts.length);
+
+  const allMachines = Array.from(new Set(machineNames(product)));
   const useFilter = machineFilter && machineFilter.length;
   const machines = useFilter ? allMachines.filter((m) => machineFilter.includes(m)) : allMachines;
+  const tools = uniqueByKey(product.tools, (t) => t.no);
 
   const headHtml = `<thead><tr><th>工具</th>${machines.map((m) => `<th>${escapeHtml(m)}</th>`).join("")}</tr></thead>`;
 
-  const bodyRows = product.tools
+  const bodyRows = tools
     .map((tool) => {
       const cells = machines
         .map((machine) => {
@@ -632,40 +654,90 @@ function startManualEntry() {
   showCaptureStep("review");
 }
 
+// 全角数字・カンマ・空白を取り除き、数値として読み取れる文字列にそろえる
+function normalizeCountText(text) {
+  return String(text ?? "")
+    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/．/g, ".")
+    .replace(/[,，、\s　]/g, "");
+}
+
+// 使用数として読み取れる数値（0以上）ならその数値を、読み取れなければ null を返す
+function parseCountText(text) {
+  const t = normalizeCountText(text);
+  if (!/^\d+(\.\d+)?$/.test(t)) return null;
+  return Number(t);
+}
+
+// 入力欄ごとの情報 [{machine, tool, value, defaultValue}] から、送信内容を作る。
+// - 変更＝値を入力した、または元々表示されていた値を消した（defaultValue は表の初期表示値）。
+//   変更があった機械だけを送信対象にし、何も触っていない機械は送信しない。
+// - 空欄の工具は、その機械の送信内容から除外され「データなし」扱いになる。
+// - 同じ（機械・工具No）の欄が複数あるときは、変更した欄を優先する
+//   （変更していない側の古い値で上書きされないようにする）。
+function resolveEntryInputs(items) {
+  const chosen = new Map();
+  const machinesChanged = new Set();
+  items.forEach((it) => {
+    const value = String(it.value ?? "").trim();
+    const changed = value !== String(it.defaultValue ?? "").trim();
+    if (changed) machinesChanged.add(it.machine);
+    const key = `${it.machine}\u0000${it.tool}`;
+    if (!chosen.has(key) || changed) {
+      chosen.set(key, { machine: it.machine, tool: it.tool, value, changed });
+    }
+  });
+
+  const byMachine = {};
+  machinesChanged.forEach((m) => {
+    byMachine[m] = {};
+  });
+  const invalid = [];
+  chosen.forEach((c) => {
+    if (!machinesChanged.has(c.machine)) return;
+    if (c.value === "") return; // 空欄＝この工具は今回「データなし」扱い
+    const n = parseCountText(c.value);
+    if (n === null) {
+      invalid.push(c);
+      return;
+    }
+    byMachine[c.machine][c.tool] = n;
+  });
+  return { machinesChanged, byMachine, invalid };
+}
+
 async function submitReview() {
   const product = capture.product;
   const inputs = Array.from(document.querySelectorAll("#review-table input"));
+  inputs.forEach((inp) => inp.classList.remove("input-error"));
 
-  // 「変更があった機械」だけを送信対象にする。変更＝値を入力した、または元々
-  // 表示されていた値を消した、のいずれか（inp.defaultValue は表の初期表示値）。
-  // これにより、消した工具（空欄）はその機械の送信内容から除外され「データなし」
-  // 扱いになる。逆に、何も触っていない機械はそもそも送信されないため、既存データが
-  // 誤って消えることもない。
-  const machinesChanged = new Set();
-  inputs.forEach((inp) => {
-    if (inp.value.trim() !== inp.defaultValue.trim()) {
-      machinesChanged.add(inp.dataset.machine);
-    }
-  });
+  const { machinesChanged, byMachine, invalid } = resolveEntryInputs(
+    inputs.map((inp) => ({
+      machine: inp.dataset.machine,
+      tool: inp.dataset.tool,
+      value: inp.value,
+      defaultValue: inp.defaultValue,
+    }))
+  );
 
   if (!machinesChanged.size) {
     showToast("変更がありません", true);
     return;
   }
 
-  const byMachine = {};
-  machinesChanged.forEach((m) => {
-    byMachine[m] = {};
-  });
-  inputs.forEach((inp) => {
-    const machine = inp.dataset.machine;
-    if (!machinesChanged.has(machine)) return;
-    const val = inp.value.trim();
-    if (val === "") return; // 空欄＝この工具は今回「データなし」扱い
-    byMachine[machine][inp.dataset.tool] = Number(val);
-  });
+  if (invalid.length) {
+    inputs.forEach((inp) => {
+      if (invalid.some((c) => c.machine === inp.dataset.machine && c.tool === inp.dataset.tool && c.value === inp.value.trim())) {
+        inp.classList.add("input-error");
+      }
+    });
+    const names = invalid.slice(0, 3).map((c) => `${c.machine} ${c.tool}`).join("、");
+    showToast(`数値として読み取れない欄があります（${names}${invalid.length > 3 ? " ほか" : ""}）。数字だけで入力してください`, true);
+    return;
+  }
 
   const machines = Array.from(machinesChanged);
+  const toolCountInTable = new Set(inputs.map((inp) => inp.dataset.tool)).size;
 
   const submitBtn = document.getElementById("btn-review-submit");
   submitBtn.disabled = true;
@@ -678,6 +750,14 @@ async function submitReview() {
         readings: byMachine[machine],
       });
     }
+    // 何が保存されたかを送信後の画面に表示する（空欄にした分は「データなし」扱いで除外されている）
+    document.getElementById("done-summary").textContent = machines
+      .map((m) => {
+        const saved = Object.keys(byMachine[m]).length;
+        const blank = toolCountInTable - saved;
+        return `${m}：${saved}件を保存${blank > 0 ? `（空欄${blank}件はデータなし）` : ""}`;
+      })
+      .join("　／　");
     showCaptureStep("done");
   } catch (e) {
     showToast("送信に失敗しました: " + e.message, true);
@@ -849,15 +929,22 @@ function wireBulkPasteModal() {
     }
     const hasHeader = document.getElementById("bulk-paste-has-header").checked;
     const dataRows = hasHeader ? bulkPasteGrid.slice(1) : bulkPasteGrid;
+    // 列を選んだ項目だけを持たせる（選んでいない項目は、既存の工具を更新するときも上書きしない）
+    const text = (row, col) => (row[col] || "").trim();
     const tools = dataRows
-      .map((row) => ({
-        no: (row[fieldToCol.no] || "").trim(),
-        process: fieldToCol.process !== undefined ? (row[fieldToCol.process] || "").trim() : "",
-        maker: fieldToCol.maker !== undefined ? (row[fieldToCol.maker] || "").trim() : "",
-        model: fieldToCol.model !== undefined ? (row[fieldToCol.model] || "").trim() : "",
-        processCount: fieldToCol.processCount !== undefined ? Number(row[fieldToCol.processCount]) || 1 : 1,
-        life: fieldToCol.life !== undefined ? Number(row[fieldToCol.life]) || 0 : 0,
-      }))
+      .map((row) => {
+        const t = { no: text(row, fieldToCol.no) };
+        if (fieldToCol.process !== undefined) t.process = text(row, fieldToCol.process);
+        if (fieldToCol.maker !== undefined) t.maker = text(row, fieldToCol.maker);
+        if (fieldToCol.model !== undefined) t.model = text(row, fieldToCol.model);
+        if (fieldToCol.processCount !== undefined) {
+          t.processCount = parseCountText(row[fieldToCol.processCount]) || 1;
+        }
+        if (fieldToCol.life !== undefined) {
+          t.life = parseCountText(row[fieldToCol.life]) || 0;
+        }
+        return t;
+      })
       .filter((t) => t.no);
 
     if (!tools.length) {
@@ -868,8 +955,13 @@ function wireBulkPasteModal() {
       showToast("追加先が見つかりませんでした。画面を開き直してください", true);
       return;
     }
-    tools.forEach((t) => bulkPasteAddToolRow(t));
-    showToast(`${tools.length}件の工具を追加しました（保存を押すまで確定しません）`);
+    let added = 0;
+    let updated = 0;
+    tools.forEach((t) => {
+      if (bulkPasteAddToolRow(t) === "updated") updated++;
+      else added++;
+    });
+    showToast(`追加 ${added}件・更新 ${updated}件（同じ工具Noは新しい行を作らず更新）。保存を押すまで確定しません`);
     closeBulkPasteModal();
   });
 }
@@ -882,12 +974,17 @@ function buildAdminProductCard(product) {
 
   const cardHeader = document.createElement("div");
   cardHeader.className = "admin-card-header";
+  const selectLabel = document.createElement("label");
+  selectLabel.className = "admin-card-select-label";
   const selectCb = document.createElement("input");
   selectCb.type = "checkbox";
   selectCb.className = "admin-card-select";
+  const selectText = document.createElement("span");
+  selectText.textContent = "削除選択";
+  selectLabel.append(selectCb, selectText);
   const title = document.createElement("h3");
   title.textContent = product.name;
-  cardHeader.append(selectCb, title);
+  cardHeader.append(selectLabel, title);
   card.appendChild(cardHeader);
 
   const idField = mkField("製品ID（変更不可）", product.id, { readonly: true });
@@ -915,6 +1012,7 @@ function buildAdminProductCard(product) {
       cycleInp: mkCell(machine && typeof machine !== "string" && machine.cycleTimeSec != null ? machine.cycleTimeSec : "", "number"),
     };
     entry.cycleInp.placeholder = "任意";
+    entry.nameInp.addEventListener("input", () => updateDupWarning());
     const delBtn = document.createElement("button");
     delBtn.className = "icon-btn";
     delBtn.textContent = "✕";
@@ -922,6 +1020,7 @@ function buildAdminProductCard(product) {
       row.remove();
       const idx = machineRows.indexOf(entry);
       if (idx >= 0) machineRows.splice(idx, 1);
+      updateDupWarning();
     });
     row.append(entry.nameInp, entry.cycleInp, delBtn);
     machinesWrap.appendChild(row);
@@ -943,18 +1042,40 @@ function buildAdminProductCard(product) {
   header.innerHTML = "<div>No</div><div>加工工程</div><div>メーカー</div><div>型式</div><div>工程数</div><div>寿命</div><div></div>";
   toolsWrap.appendChild(header);
 
+  // 工具No・NC機名の重複を検知して、カード内に警告を出す（保存時にも同じ判定を使う）。
+  const dupWarning = document.createElement("p");
+  dupWarning.className = "dup-warning hidden";
   const rows = [];
+  function collectDupMessages() {
+    const msgs = [];
+    const dupTools = findDuplicateKeys(rows.map((r) => r.noInp.value.trim()).filter(Boolean), (x) => x);
+    if (dupTools.length) msgs.push(`工具Noが重複しています: ${dupTools.join("、")}`);
+    const dupMachines = findDuplicateKeys(machineRows.map((r) => r.nameInp.value.trim()).filter(Boolean), (x) => x);
+    if (dupMachines.length) msgs.push(`NC機名が重複しています: ${dupMachines.join("、")}`);
+    return msgs;
+  }
+  function updateDupWarning() {
+    const msgs = collectDupMessages();
+    dupWarning.textContent = msgs.length
+      ? `⚠ ${msgs.join(" ／ ")}（重複したままでは保存できません。不要な行を ✕ で削除してください）`
+      : "";
+    dupWarning.classList.toggle("hidden", !msgs.length);
+  }
+
+  // tool には一部の項目だけが入っていてもよい（未指定の項目は初期値になる）
   function addToolRow(tool) {
+    const has = (key) => tool && tool[key] !== undefined && tool[key] !== null;
     const row = document.createElement("div");
     row.className = "tool-row-grid";
     const entry = {
-      noInp: mkCell(tool ? tool.no : ""),
-      procInp: mkCell(tool ? tool.process : ""),
-      makerInp: mkCell(tool ? tool.maker : ""),
-      modelInp: mkCell(tool ? tool.model : ""),
-      pcInp: mkCell(tool ? tool.processCount : 1, "number"),
-      lifeInp: mkCell(tool ? tool.life : 0, "number"),
+      noInp: mkCell(has("no") ? tool.no : ""),
+      procInp: mkCell(has("process") ? tool.process : ""),
+      makerInp: mkCell(has("maker") ? tool.maker : ""),
+      modelInp: mkCell(has("model") ? tool.model : ""),
+      pcInp: mkCell(has("processCount") ? tool.processCount : 1, "number"),
+      lifeInp: mkCell(has("life") ? tool.life : 0, "number"),
     };
+    entry.noInp.addEventListener("input", () => updateDupWarning());
     const delBtn = document.createElement("button");
     delBtn.className = "icon-btn";
     delBtn.textContent = "✕";
@@ -962,11 +1083,30 @@ function buildAdminProductCard(product) {
       row.remove();
       const idx = rows.indexOf(entry);
       if (idx >= 0) rows.splice(idx, 1);
+      updateDupWarning();
     });
     row.append(entry.noInp, entry.procInp, entry.makerInp, entry.modelInp, entry.pcInp, entry.lifeInp, delBtn);
     toolsWrap.appendChild(row);
     rows.push(entry);
+    updateDupWarning();
   }
+
+  // 一括貼り付け用：同じ工具Noの行が既にあれば、新しい行を作らず、貼り付けた項目だけを更新する
+  // （貼り付けを繰り返しても重複しないようにする）。戻り値は "added" または "updated"。
+  function upsertToolRow(tool) {
+    const existing = rows.find((r) => r.noInp.value.trim() === tool.no);
+    if (!existing) {
+      addToolRow(tool);
+      return "added";
+    }
+    if (tool.process !== undefined) existing.procInp.value = tool.process;
+    if (tool.maker !== undefined) existing.makerInp.value = tool.maker;
+    if (tool.model !== undefined) existing.modelInp.value = tool.model;
+    if (tool.processCount !== undefined) existing.pcInp.value = tool.processCount;
+    if (tool.life !== undefined) existing.lifeInp.value = tool.life;
+    return "updated";
+  }
+
   (product.tools || []).forEach(addToolRow);
   card.appendChild(toolsWrap);
 
@@ -979,8 +1119,16 @@ function buildAdminProductCard(product) {
   const bulkOpenBtn = document.createElement("button");
   bulkOpenBtn.className = "secondary-btn";
   bulkOpenBtn.textContent = "📋 Excel等から一括追加";
-  bulkOpenBtn.addEventListener("click", () => openBulkPasteModal(addToolRow));
+  bulkOpenBtn.addEventListener("click", () => openBulkPasteModal(upsertToolRow));
   card.appendChild(bulkOpenBtn);
+  card.appendChild(dupWarning);
+  updateDupWarning();
+
+  // 重複（工具No・NC機名）があるときは保存させない。問題がなければ null を返す。
+  card.validate = () => {
+    const msgs = collectDupMessages();
+    return msgs.length ? msgs.join(" ／ ") : null;
+  };
 
   // このカード自身は保存ボタンを持たず、「製品の変更をまとめて保存」から呼び出される。
   card.getData = () => ({
@@ -1065,12 +1213,17 @@ function buildAdminStaffCard(staffMember) {
 
   const header = document.createElement("div");
   header.className = "admin-card-header";
+  const selectLabel = document.createElement("label");
+  selectLabel.className = "admin-card-select-label";
   const selectCb = document.createElement("input");
   selectCb.type = "checkbox";
   selectCb.className = "admin-card-select";
+  const selectText = document.createElement("span");
+  selectText.textContent = "削除選択";
+  selectLabel.append(selectCb, selectText);
   const title = document.createElement("h3");
   title.textContent = staffMember.name || "(新規担当者)";
-  header.append(selectCb, title);
+  header.append(selectLabel, title);
   card.appendChild(header);
 
   const nameField = mkField("氏名", staffMember.name || "");
@@ -1215,6 +1368,12 @@ async function saveAllCards(listId, buttonId, label) {
   const failed = [];
   for (const card of cards) {
     const data = card.getData();
+    // 重複（工具No・NC機名）があるカードは保存しない（データが壊れる原因になるため）
+    const problem = typeof card.validate === "function" ? card.validate() : null;
+    if (problem) {
+      failed.push(`${data.name || data.id}: ${problem}`);
+      continue;
+    }
     try {
       if (listId === "admin-product-list") {
         await db.saveProduct(data);
@@ -1427,6 +1586,9 @@ function stopApp() {
 }
 
 async function init() {
+  syncHeaderHeight();
+  window.addEventListener("resize", syncHeaderHeight);
+
   wireCaptureEvents();
   wireAdminEvents();
   wireAuthGate();

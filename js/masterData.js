@@ -43,5 +43,5 @@ export const SEED_PRODUCTS = [
 // 交換優先度のしきい値（残り寿命の割合）
 export const PRIORITY_THRESHOLDS = {
   danger: 0.1, // 残り10%未満 → 至急交換
-  warning: 0.3, // 残り30%未満 → まもなく交換
+  warning: 0.3, // 残り30%未満 → 次のシフトで交換
 };

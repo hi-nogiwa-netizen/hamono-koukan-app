@@ -144,7 +144,7 @@ function renderDashboard() {
 
   document.getElementById("summary-row").innerHTML = `
     <div class="summary-tile danger"><span class="num">${stats.danger}</span><span class="label">至急交換</span></div>
-    <div class="summary-tile warning"><span class="num">${stats.warning}</span><span class="label">まもなく交換</span></div>
+    <div class="summary-tile warning"><span class="num">${stats.warning}</span><span class="label">次のシフトで交換</span></div>
     <div class="summary-tile ok"><span class="num">${stats.ok}</span><span class="label">正常</span></div>
   `;
 
@@ -175,11 +175,13 @@ function renderDashboard() {
         ? te.withinCurrentShift
           ? '<span class="today-flag">⏰ 今のシフト中に交換が必要</span>'
           : te.withinNextShift
-            ? '<span class="warn-flag">🟡 次のシフトまでに交換が必要</span>'
+            ? '<span class="warn-flag">🟡 次のシフトで交換が必要</span>'
             : '<span class="ok-flag">✅ 今のシフト中は交換不要</span>'
         : r.willRunOutToday
           ? '<span class="today-flag">本日中に寿命到達の恐れ</span>'
-          : "";
+          : r.level === "warning"
+            ? '<span class="warn-flag">🟡 残りわずか</span>'
+            : "";
       const timeLine = te
         ? `<div class="time-estimate">⏱ 残り約${escapeHtml(formatDuration(te.secondsToExhaust))}（目安 ${escapeHtml(formatDateTime(te.exhaustAt))}）</div>`
         : "";
@@ -237,7 +239,7 @@ function renderStaffSummary() {
         <div class="staff-summary-name">👤 ${escapeHtml(staff.name)}</div>
         <div class="staff-summary-counts">
           <span class="count-chip danger">🔴 至急 ${stats.danger}</span>
-          <span class="count-chip warning">🟡 まもなく ${stats.warning}</span>
+          <span class="count-chip warning">🟡 次シフト ${stats.warning}</span>
           <span class="count-chip ok">🟢 正常 ${stats.ok}</span>
         </div>
       </button>`

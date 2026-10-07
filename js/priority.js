@@ -1,7 +1,7 @@
 import { PRIORITY_THRESHOLDS } from "./masterData.js";
 import { isOperating, currentOperatingSegmentEnd, addOperatingSeconds, operatingSecondsElapsed } from "./schedule.js";
 
-// 残り寿命の割合からレベル判定（danger=至急交換 / warning=まもなく交換 / ok=正常）
+// 残り寿命の割合からレベル判定（danger=至急交換 / warning=次のシフトで交換 / ok=正常）
 export function levelFor(ratio) {
   if (ratio <= PRIORITY_THRESHOLDS.danger) return "danger";
   if (ratio <= PRIORITY_THRESHOLDS.warning) return "warning";
@@ -10,7 +10,7 @@ export function levelFor(ratio) {
 
 export const LEVEL_LABEL = {
   danger: "至急交換",
-  warning: "まもなく交換",
+  warning: "次のシフトで交換",
   ok: "正常",
 };
 

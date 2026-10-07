@@ -8,6 +8,12 @@ let staffList = [];
 let myOnlyToggleInitialized = false;
 // 「担当別」タブから特定の担当者の一覧へジャンプしたときに設定される（ページ内の一時的な状態）
 let viewingStaffId = null;
+// 優先順位タブの上のタイル（至急交換／次のシフトで交換）を押して一覧を絞り込んだ状態。null = 絞り込みなし
+let levelFilter = null;
+const FILTERABLE_LEVELS = {
+  danger: "至急交換",
+  warning: "次のシフトで交換",
+};
 
 const OTHER_STAFF_VALUE = "__other__";
 
@@ -142,9 +148,12 @@ function renderDashboard() {
 
   const stats = summarize(rows);
 
+  const filterTile = (level) =>
+    `<button type="button" class="summary-tile ${level} tappable${levelFilter === level ? " active" : ""}" data-level="${level}" aria-pressed="${levelFilter === level}">` +
+    `<span class="num">${stats[level]}</span><span class="label">${FILTERABLE_LEVELS[level]}</span></button>`;
   document.getElementById("summary-row").innerHTML = `
-    <div class="summary-tile danger"><span class="num">${stats.danger}</span><span class="label">至急交換</span></div>
-    <div class="summary-tile warning"><span class="num">${stats.warning}</span><span class="label">次のシフトで交換</span></div>
+    ${filterTile("danger")}
+    ${filterTile("warning")}
     <div class="summary-tile ok"><span class="num">${stats.ok}</span><span class="label">正常</span></div>
   `;
 
@@ -159,15 +168,26 @@ function renderDashboard() {
 
   // 「正常（交換不要）」の工具は一覧から外す。交換した直後の工具もここに含まれるため、
   // 「交換した」を押すとその工具は一覧から消えるようになる。件数自体は上のタイルで分かる。
-  const displayRows = rows.filter((r) => r.level !== "ok");
-  if (!displayRows.length) {
+  const needRows = rows.filter((r) => r.level !== "ok");
+  if (!needRows.length) {
     listEl.innerHTML = '<p class="empty-hint">現在、交換が必要な工具はありません。🎉</p>';
     return;
   }
-  displayRows.forEach((row, i) => {
+  // 番号は「絞り込む前の」一覧での優先順位のまま表示する（絞り込んでも番号が変わらないように）
+  needRows.forEach((row, i) => {
     row.rank = i + 1;
   });
-  listEl.innerHTML = displayRows
+
+  // タイルで絞り込み中は、そのレベルの工具だけを表示する
+  const displayRows = levelFilter ? needRows.filter((r) => r.level === levelFilter) : needRows;
+  const filterNote = levelFilter
+    ? `<p class="filter-note">「${FILTERABLE_LEVELS[levelFilter]}」の工具だけを表示中（${displayRows.length}件）。もう一度タイルを押すと全て表示します。</p>`
+    : "";
+  if (!displayRows.length) {
+    listEl.innerHTML = `${filterNote}<p class="empty-hint">「${FILTERABLE_LEVELS[levelFilter]}」の工具はありません。</p>`;
+    return;
+  }
+  listEl.innerHTML = filterNote + displayRows
     .map((r) => {
       const pct = Math.max(0, Math.round(r.ratio * 100));
       const te = r.timeEstimate;
@@ -368,6 +388,16 @@ function wirePriorityListEvents() {
     const btn = evt.target.closest(".exchange-btn");
     if (!btn) return;
     openExchangeModal(btn.dataset.product, btn.dataset.machine, btn.dataset.tool);
+  });
+
+  // 至急交換／次のシフトで交換のタイルを押すと、その工具だけに絞り込む（もう一度押すと解除）
+  document.getElementById("summary-row").addEventListener("click", (evt) => {
+    const tile = evt.target.closest(".summary-tile[data-level]");
+    if (!tile) return;
+    const level = tile.dataset.level;
+    if (!FILTERABLE_LEVELS[level]) return;
+    levelFilter = levelFilter === level ? null : level;
+    renderDashboard();
   });
 }
 

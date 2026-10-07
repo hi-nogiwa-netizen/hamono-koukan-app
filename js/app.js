@@ -187,7 +187,19 @@ function renderDashboard() {
     listEl.innerHTML = `${filterNote}<p class="empty-hint">「${FILTERABLE_LEVELS[levelFilter]}」の工具はありません。</p>`;
     return;
   }
-  listEl.innerHTML = filterNote + displayRows
+  // サイクルタイム未設定のNC機が一覧に含まれているときは、どの機械を設定すればよいかを案内する
+  const noCycleMachines = uniqueByKey(
+    displayRows.filter((r) => !r.timeEstimate),
+    (r) => `${r.productName} / ${r.machine}`
+  ).map((r) => `${r.productName} / ${r.machine}`);
+  const MAX_LISTED = 5;
+  const cycleNote = noCycleMachines.length
+    ? `<p class="cycle-note">⚠ サイクルタイムが未設定のNC機があり、その工具は残り時間を表示できません：` +
+      `${escapeHtml(noCycleMachines.slice(0, MAX_LISTED).join("、"))}` +
+      `${noCycleMachines.length > MAX_LISTED ? `（ほか${noCycleMachines.length - MAX_LISTED}台）` : ""}` +
+      `。「マスタ」タブ →「製品・工具マスタ」で各NC機のサイクルタイム（秒）を入力すると表示されます。</p>`
+    : "";
+  listEl.innerHTML = filterNote + cycleNote + displayRows
     .map((r) => {
       const pct = Math.max(0, Math.round(r.ratio * 100));
       const te = r.timeEstimate;
@@ -202,9 +214,13 @@ function renderDashboard() {
           : r.level === "warning"
             ? '<span class="warn-flag">🟡 残りわずか</span>'
             : "";
+      // 残り時間はNC機にサイクルタイムが設定されているときだけ計算できる。
+      // 未設定の機械でも「表示されない」のではなく理由が分かるように、必ず1行出す。
       const timeLine = te
-        ? `<div class="time-estimate">⏱ 残り約${escapeHtml(formatDuration(te.secondsToExhaust))}（目安 ${escapeHtml(formatDateTime(te.exhaustAt))}）</div>`
-        : "";
+        ? te.secondsToExhaust <= 0
+          ? '<div class="time-estimate">⏱ 寿命に到達しています</div>'
+          : `<div class="time-estimate">⏱ 残り約${escapeHtml(formatDuration(te.secondsToExhaust))}（目安 ${escapeHtml(formatDateTime(te.exhaustAt))}）</div>`
+        : '<div class="time-estimate time-unknown">⏱ 残り時間：不明（このNC機はサイクルタイム未設定）</div>';
       const assignedNames = findAssignedStaffNames(r.productId, r.machine);
       const assignedLine = assignedNames.length
         ? `<div class="assignee-line">👤 担当: ${escapeHtml(assignedNames.join("、"))}</div>`

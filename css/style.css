@@ -301,6 +301,17 @@ button.summary-tile.tappable.active {
   color: var(--text-muted);
   margin-top: 3px;
 }
+.time-estimate.time-unknown { opacity: 0.8; }
+.cycle-note {
+  margin: 0 0 4px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--warning-bg);
+  border-left: 4px solid var(--warning);
+  border-radius: 8px;
+}
 .assignee-line {
   font-size: 11.5px;
   color: var(--brand);

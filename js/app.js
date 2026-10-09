@@ -1,6 +1,6 @@
 import * as db from "./db.js";
 import { computePriorityList, summarize, estimateCurrentCount, uniqueByKey, findDuplicateKeys } from "./priority.js";
-import { formatDuration, formatDateTime } from "./schedule.js";
+import { formatDuration, formatDateTime, currentShiftName, SHIFT_NAMES } from "./schedule.js";
 
 let products = [];
 let latestScans = new Map();
@@ -75,22 +75,84 @@ function getMyStaff() {
   return staffList.find((s) => s.id === myId) || null;
 }
 
-function isAssignedTo(staff, productId, machine) {
+// ---- 直（1直/2直）ごとの担当 ----
+// 担当（assignment）は shift（"1直" / "2直" / "all"）を持つ。shift が無い古いデータは "all"（両方の直）。
+// 同じ製品でも直ごとに担当NC機が違う場合は、同じ製品の担当を2つ登録して直を分ける。
+
+function assignmentCoversShift(assignment, shift) {
+  const s = assignment && assignment.shift;
+  if (!shift || !s || s === "all") return true; // shift が null のときは直を問わない
+  return s === shift;
+}
+
+// 優先順位タブ・入力タブが基準にする「表示する直」。"auto"=今の直 / "1直" / "2直" / "all"=全ての直
+function getShiftView() {
+  let v = null;
+  try {
+    v = localStorage.getItem("viewShift");
+  } catch (e) {
+    /* localStorage が使えない環境では毎回 auto */
+  }
+  return v === "1直" || v === "2直" || v === "all" ? v : "auto";
+}
+
+// 実際に絞り込みに使う直。null のときは直を問わない（全ての直の担当分を対象にする）。
+// "auto" は今動いている直。稼働していない時間（土日など）は null（絞り込まない）。
+function getEffectiveShift(now = new Date()) {
+  const v = getShiftView();
+  if (v === "auto") return currentShiftName(now);
+  if (v === "all") return null;
+  return v;
+}
+
+// 直ごとに担当を分けて登録している人がいるか（いなければ直の選択欄は出さない）
+function anyShiftSpecificAssignments() {
+  return staffList.some((s) => (s.assignments || []).some((a) => a.shift === "1直" || a.shift === "2直"));
+}
+
+function isAssignedTo(staff, productId, machine, shift = null) {
   if (!staff || !staff.assignments) return false;
-  const assignment = staff.assignments.find((a) => a.productId === productId);
-  if (!assignment) return false;
-  if (!assignment.machines || !assignment.machines.length) return false; // NC機を1台も選んでいなければ対象外
-  return assignment.machines.includes(machine);
+  // 同じ製品の担当が複数登録されていることがある（直ごとにNC機が違う場合）ので、全て調べる
+  return staff.assignments.some(
+    (a) =>
+      a.productId === productId &&
+      a.machines &&
+      a.machines.includes(machine) && // NC機を1台も選んでいなければ対象外
+      assignmentCoversShift(a, shift)
+  );
 }
 
-// その製品・機械を担当している人（複数いる場合は全員）の名前を返す
-function findAssignedStaffNames(productId, machine) {
-  return staffList.filter((s) => isAssignedTo(s, productId, machine)).map((s) => s.name);
+// 優先順位カードに出す担当者の行。1直と2直で担当が同じなら「担当: ◯◯」、違うなら直ごとに分けて表示する。
+function assigneeLineHtml(productId, machine) {
+  const namesFor = (shift) =>
+    staffList.filter((s) => isAssignedTo(s, productId, machine, shift)).map((s) => s.name);
+  const [first, second] = SHIFT_NAMES.map(namesFor);
+  const same = first.length === second.length && first.every((n) => second.includes(n));
+  if (same) {
+    return first.length
+      ? `<div class="assignee-line">👤 担当: ${escapeHtml(first.join("、"))}</div>`
+      : '<div class="assignee-line assignee-none">👤 担当者未設定</div>';
+  }
+  const fmt = (names) => (names.length ? escapeHtml(names.join("、")) : "未設定");
+  return `<div class="assignee-line">👤 ${SHIFT_NAMES[0]}: ${fmt(first)}　${SHIFT_NAMES[1]}: ${fmt(second)}</div>`;
 }
 
-function filterRowsForStaff(rows, staff) {
+function filterRowsForStaff(rows, staff, shift = null) {
   if (!staff || !staff.assignments || !staff.assignments.length) return rows;
-  return rows.filter((r) => isAssignedTo(staff, r.productId, r.machine));
+  return rows.filter((r) => isAssignedTo(staff, r.productId, r.machine, shift));
+}
+
+// 「担当別」タブで、直ごとに担当が決まっている人に付ける短い表示
+function staffShiftTag(staff) {
+  const shifts = new Set();
+  (staff.assignments || []).forEach((a) => {
+    if (a.shift === "1直" || a.shift === "2直") shifts.add(a.shift);
+    else SHIFT_NAMES.forEach((n) => shifts.add(n));
+  });
+  const specific = (staff.assignments || []).some((a) => a.shift === "1直" || a.shift === "2直");
+  if (!specific) return "";
+  if (shifts.size === 1) return `${Array.from(shifts)[0]}のみ`;
+  return "直ごとに担当あり";
 }
 
 function renderWhoamiBar(myStaff) {
@@ -116,6 +178,29 @@ function renderWhoamiBar(myStaff) {
   }
 }
 
+// 「表示する直」の切り替えボタン（今の直／1直／2直／全て）。担当分で絞り込んでいるときだけ表示する。
+function renderShiftView(visible) {
+  const wrap = document.getElementById("shift-view-wrap");
+  wrap.classList.toggle("hidden", !visible);
+  if (!visible) return;
+
+  const view = getShiftView();
+  const current = currentShiftName(new Date());
+  wrap.querySelectorAll(".shift-btn").forEach((btn) => {
+    const active = btn.dataset.shift === view;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-pressed", String(active));
+    if (btn.dataset.shift === "auto") btn.textContent = `今の直（${current || "休み"}）`;
+  });
+
+  const effective = getEffectiveShift();
+  document.getElementById("shift-view-hint").textContent = effective
+    ? `${effective}の担当分を表示しています`
+    : view === "auto"
+      ? "今は稼働時間外のため、1直・2直すべての担当分を表示しています"
+      : "1直・2直すべての担当分を表示しています";
+}
+
 // 「担当別」タブから他の担当者の一覧へジャンプしたときは、自分の設定（自分の担当分だけ表示等）
 // には触れず、その担当者だけに絞った一覧を一時的に表示する。
 function renderDashboard() {
@@ -130,21 +215,26 @@ function renderDashboard() {
   let rows;
   let isFiltered;
   let emptyFilteredMessage;
+  // 直ごとに担当を分けて登録している場合だけ、「表示する直」で担当分を絞り込む
+  const shiftAware = anyShiftSpecificAssignments();
+  const effectiveShift = shiftAware ? getEffectiveShift() : null;
+  const shiftSuffix = effectiveShift ? `（${effectiveShift}）` : "";
 
   if (viewingStaff) {
-    document.getElementById("viewing-staff-label").textContent = `👤 ${viewingStaff.name} さんの担当分`;
-    rows = filterRowsForStaff(allRows, viewingStaff);
+    document.getElementById("viewing-staff-label").textContent = `👤 ${viewingStaff.name} さんの担当分${shiftSuffix}`;
+    rows = filterRowsForStaff(allRows, viewingStaff, effectiveShift);
     isFiltered = true;
-    emptyFilteredMessage = `${viewingStaff.name}さんの担当分の記録がありません。担当製品の設定をご確認ください。`;
+    emptyFilteredMessage = `${viewingStaff.name}さん${shiftSuffix}の担当分の記録がありません。担当製品・直の設定をご確認ください。`;
   } else {
     const myStaff = getMyStaff();
     renderWhoamiBar(myStaff);
     const showMyOnly = document.getElementById("my-only-toggle").checked;
     const hasAssignments = !!(myStaff && myStaff.assignments && myStaff.assignments.length);
     isFiltered = showMyOnly && hasAssignments;
-    rows = isFiltered ? filterRowsForStaff(allRows, myStaff) : allRows;
-    emptyFilteredMessage = "あなたの担当分の記録がありません。担当製品の設定をご確認ください。";
+    rows = isFiltered ? filterRowsForStaff(allRows, myStaff, effectiveShift) : allRows;
+    emptyFilteredMessage = `あなたの${shiftSuffix}担当分の記録がありません。担当製品・直の設定をご確認ください。`;
   }
+  renderShiftView(shiftAware && isFiltered);
 
   const stats = summarize(rows);
 
@@ -221,10 +311,7 @@ function renderDashboard() {
           ? '<div class="time-estimate">⏱ 寿命に到達しています</div>'
           : `<div class="time-estimate">⏱ 残り約${escapeHtml(formatDuration(te.secondsToExhaust))}（目安 ${escapeHtml(formatDateTime(te.exhaustAt))}）</div>`
         : '<div class="time-estimate time-unknown">⏱ 残り時間：不明（このNC機はサイクルタイム未設定）</div>';
-      const assignedNames = findAssignedStaffNames(r.productId, r.machine);
-      const assignedLine = assignedNames.length
-        ? `<div class="assignee-line">👤 担当: ${escapeHtml(assignedNames.join("、"))}</div>`
-        : '<div class="assignee-line assignee-none">👤 担当者未設定</div>';
+      const assignedLine = assigneeLineHtml(r.productId, r.machine);
       return `
       <div class="priority-card ${r.level}">
         <div class="priority-card-main">
@@ -272,7 +359,9 @@ function renderStaffSummary() {
     .map(
       ({ staff, stats }) => `
       <button type="button" class="staff-summary-card" data-staff-id="${escapeHtml(staff.id)}">
-        <div class="staff-summary-name">👤 ${escapeHtml(staff.name)}</div>
+        <div class="staff-summary-name">👤 ${escapeHtml(staff.name)}${
+          staffShiftTag(staff) ? ` <span class="shift-tag">${escapeHtml(staffShiftTag(staff))}</span>` : ""
+        }</div>
         <div class="staff-summary-counts">
           <span class="count-chip danger">🔴 至急 ${stats.danger}</span>
           <span class="count-chip warning">🟡 次シフト ${stats.warning}</span>
@@ -406,6 +495,18 @@ function wirePriorityListEvents() {
     openExchangeModal(btn.dataset.product, btn.dataset.machine, btn.dataset.tool);
   });
 
+  // 「表示する直」の切り替え（今の直／1直／2直／全て）
+  document.getElementById("shift-view-wrap").addEventListener("click", (evt) => {
+    const btn = evt.target.closest(".shift-btn");
+    if (!btn) return;
+    try {
+      localStorage.setItem("viewShift", btn.dataset.shift);
+    } catch (e) {
+      /* 保存できなくても、この画面の間は切り替わらないだけ */
+    }
+    renderDashboard();
+  });
+
   // 至急交換／次のシフトで交換のタイルを押すと、その工具だけに絞り込む（もう一度押すと解除）
   document.getElementById("summary-row").addEventListener("click", (evt) => {
     const tile = evt.target.closest(".summary-tile[data-level]");
@@ -535,9 +636,12 @@ function populateProductSelect() {
 // 担当者は複数の製品を担当できるので、これはあくまで初期選択であり、
 // 製品欄はいつでも手動で変更できる。
 function applyStaffProductDefault(staff) {
-  const firstAssignment = staff && staff.assignments && staff.assignments[0];
-  if (firstAssignment && firstAssignment.productId && products.some((p) => p.id === firstAssignment.productId)) {
-    document.getElementById("product-select").value = firstAssignment.productId;
+  const list = (staff && staff.assignments) || [];
+  const shift = getEffectiveShift();
+  // 今の直を担当している製品を優先し、なければ1つ目の担当製品を使う
+  const target = list.find((a) => a.productId && assignmentCoversShift(a, shift)) || list[0];
+  if (target && target.productId && products.some((p) => p.id === target.productId)) {
+    document.getElementById("product-select").value = target.productId;
   }
 }
 
@@ -583,8 +687,14 @@ function getMachineFilterForSelection() {
   const staff = getSelectedStaff();
   if (!staff || !staff.assignments) return null;
   const productId = document.getElementById("product-select").value;
-  const assignment = staff.assignments.find((a) => a.productId === productId);
-  return assignment && assignment.machines && assignment.machines.length ? assignment.machines : null;
+  // 同じ製品の担当が複数ある（直ごとにNC機が違う）場合は、今の直の担当NC機を優先する。
+  // 今の直の担当がなければ（例：2直担当の人が昼に入力する）、その製品の担当NC機を全て出す。
+  const matching = staff.assignments.filter((a) => a.productId === productId && a.machines && a.machines.length);
+  if (!matching.length) return null;
+  const shift = getEffectiveShift();
+  const inShift = matching.filter((a) => assignmentCoversShift(a, shift));
+  const use = inShift.length ? inShift : matching;
+  return Array.from(new Set(use.flatMap((a) => a.machines)));
 }
 
 function currentCapturedByName() {
@@ -1282,6 +1392,12 @@ function buildAdminStaffCard(staffMember) {
   assignmentsLabel.textContent = "担当製品・担当NC機（複数登録できます）";
   card.appendChild(assignmentsLabel);
 
+  const shiftHelp = document.createElement("p");
+  shiftHelp.className = "hint-text";
+  shiftHelp.textContent =
+    "1直と2直で担当NC機が違う場合は、「担当する直」を選び、同じ製品を「＋ 担当製品を追加」でもう1つ追加して、直ごとにNC機を設定してください。";
+  card.appendChild(shiftHelp);
+
   const assignmentsWrap = document.createElement("div");
   card.appendChild(assignmentsWrap);
 
@@ -1303,6 +1419,18 @@ function buildAdminStaffCard(staffMember) {
     removeBtn.textContent = "✕";
     top.append(productSelect, removeBtn);
     block.appendChild(top);
+
+    // 担当する直。同じ製品でも直ごとに担当NC機が違う場合は、この担当を2つ作って直を分ける。
+    const shiftRow = document.createElement("div");
+    shiftRow.className = "assignment-shift-row";
+    const shiftLabel = document.createElement("span");
+    shiftLabel.textContent = "担当する直";
+    const shiftSelect = document.createElement("select");
+    shiftSelect.innerHTML =
+      '<option value="all">1直・2直とも</option>' + SHIFT_NAMES.map((n) => `<option value="${n}">${n}のみ</option>`).join("");
+    shiftSelect.value = assignment && (assignment.shift === "1直" || assignment.shift === "2直") ? assignment.shift : "all";
+    shiftRow.append(shiftLabel, shiftSelect);
+    block.appendChild(shiftRow);
 
     const checkboxGroup = document.createElement("div");
     checkboxGroup.className = "checkbox-group";
@@ -1335,7 +1463,7 @@ function buildAdminStaffCard(staffMember) {
     renderMachines();
     productSelect.addEventListener("change", renderMachines);
 
-    const entry = { productSelect, checkboxGroup };
+    const entry = { productSelect, shiftSelect, checkboxGroup };
     removeBtn.addEventListener("click", () => {
       block.remove();
       const idx = assignmentEntries.indexOf(entry);
@@ -1363,6 +1491,7 @@ function buildAdminStaffCard(staffMember) {
     assignments: assignmentEntries
       .map((e) => ({
         productId: e.productSelect.value,
+        shift: e.shiftSelect.value,
         machines: Array.from(e.checkboxGroup.querySelectorAll("input:checked")).map((cb) => cb.value),
       }))
       .filter((a) => a.productId),

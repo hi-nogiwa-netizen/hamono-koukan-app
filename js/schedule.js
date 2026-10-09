@@ -12,6 +12,9 @@ export const SHIFT1_START_HOUR = 8;
 export const SHIFT_SWITCH_HOUR = 21;
 export const SATURDAY_END_HOUR = 4;
 
+// 担当者マスタなどで使う直の名前（currentShiftName の戻り値と同じ表記）
+export const SHIFT_NAMES = ["1直", "2直"];
+
 // 指定した日時が稼働時間内かどうか
 export function isOperating(date) {
   const day = date.getDay(); // 0=日,1=月,...6=土

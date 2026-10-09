@@ -58,6 +58,16 @@
       <input id="my-only-toggle" type="checkbox" />
       自分の担当分だけ表示
     </label>
+    <div id="shift-view-wrap" class="shift-view-wrap hidden">
+      <span class="shift-view-label">表示する直</span>
+      <div class="shift-btn-group">
+        <button type="button" class="shift-btn" data-shift="auto">今の直</button>
+        <button type="button" class="shift-btn" data-shift="1直">1直</button>
+        <button type="button" class="shift-btn" data-shift="2直">2直</button>
+        <button type="button" class="shift-btn" data-shift="all">全て</button>
+      </div>
+      <p id="shift-view-hint" class="hint-text"></p>
+    </div>
     <div class="summary-row" id="summary-row"></div>
     <div id="priority-list" class="priority-list">
       <p class="empty-hint">読み込み中…</p>
@@ -136,7 +146,7 @@
     </div>
 
     <div id="admin-view-staff" class="admin-subview">
-      <p class="hint-text">担当者ごとに担当製品・担当NC機を登録しておくと、「入力」タブで名前を選ぶだけで製品とNC機が自動で設定されます。異動などがあれば、いつでもここで変更できます。</p>
+      <p class="hint-text">担当者ごとに担当製品・担当NC機を登録しておくと、「入力」タブで名前を選ぶだけで製品とNC機が自動で設定されます。異動などがあれば、いつでもここで変更できます。1直と2直で担当NC機が違う場合は、担当ごとに「担当する直」を選べます。</p>
       <div class="row-buttons">
         <button id="btn-admin-new-staff" class="secondary-btn">＋ 担当者を追加</button>
       </div>

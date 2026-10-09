@@ -133,9 +133,23 @@ export async function deleteProduct(productId) {
 
 // 古いデータ（productId・machinesを直接持つ、1人1製品だけの形式）を
 // 新形式（assignments: [{productId, machines}, ...]、1人が複数製品を担当できる）に変換する。
+//
+// 各担当（assignment）の shift は、その担当を受け持つ直を表す："1直" / "2直" / "all"（両方）。
+// shift を持たない古いデータは "all"（1直・2直とも担当）として扱う。
+function normalizeShift(value) {
+  return value === "1直" || value === "2直" ? value : "all";
+}
+
 function normalizeStaff(staff) {
-  if (Array.isArray(staff.assignments)) return staff;
-  const assignments = staff.productId ? [{ productId: staff.productId, machines: staff.machines || [] }] : [];
+  const raw =
+    staff.assignments && typeof staff.assignments === "object"
+      ? toArray(staff.assignments)
+      : staff.productId
+        ? [{ productId: staff.productId, machines: staff.machines || [] }]
+        : [];
+  const assignments = raw
+    .filter((a) => a && typeof a === "object")
+    .map((a) => ({ ...a, machines: toArray(a.machines), shift: normalizeShift(a.shift) }));
   return { ...staff, assignments };
 }
 

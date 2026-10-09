@@ -179,6 +179,55 @@ body {
 .toggle-wrap input { width: auto; }
 .toggle-wrap.hidden { display: none; }
 
+/* 表示する直（今の直／1直／2直／全て）の切り替え */
+.shift-view-wrap { margin-bottom: 10px; }
+.shift-view-wrap.hidden { display: none; }
+.shift-view-label { display: block; font-size: 12.5px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; }
+.shift-btn-group { display: flex; gap: 6px; }
+.shift-btn {
+  flex: 1;
+  padding: 8px 4px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--brand);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.shift-btn.active { color: white; background: var(--brand); border-color: var(--brand); }
+.shift-view-wrap .hint-text { margin: 4px 0 0; font-size: 12.5px; }
+.shift-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--brand);
+  background: #e3ebf5;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+.assignment-shift-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.assignment-shift-row select {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  background: white;
+}
+
 .summary-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

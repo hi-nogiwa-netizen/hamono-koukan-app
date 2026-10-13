@@ -142,17 +142,62 @@ function filterRowsForStaff(rows, staff, shift = null) {
   return rows.filter((r) => isAssignedTo(staff, r.productId, r.machine, shift));
 }
 
-// 「担当別」タブで、直ごとに担当が決まっている人に付ける短い表示
-function staffShiftTag(staff) {
-  const shifts = new Set();
-  (staff.assignments || []).forEach((a) => {
-    if (a.shift === "1直" || a.shift === "2直") shifts.add(a.shift);
-    else SHIFT_NAMES.forEach((n) => shifts.add(n));
+// その担当者が、指定した直に担当しているNC機の一覧 [{productId, machine}]（重複なし）
+function staffMachinesForShift(staff, shift) {
+  const seen = new Set();
+  const list = [];
+  ((staff && staff.assignments) || []).forEach((a) => {
+    if (!a.productId || !a.machines || !assignmentCoversShift(a, shift)) return;
+    a.machines.forEach((machine) => {
+      const key = `${a.productId}::${machine}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      list.push({ productId: a.productId, machine });
+    });
   });
-  const specific = (staff.assignments || []).some((a) => a.shift === "1直" || a.shift === "2直");
-  if (!specific) return "";
-  if (shifts.size === 1) return `${Array.from(shifts)[0]}のみ`;
-  return "直ごとに担当あり";
+  return list;
+}
+
+// 「INJ-CUP NC84・NC85、△△ NC1」のように製品ごとにまとめた表記
+function describeMachineList(list) {
+  const byProduct = new Map();
+  list.forEach(({ productId, machine }) => {
+    if (!byProduct.has(productId)) byProduct.set(productId, []);
+    byProduct.get(productId).push(machine);
+  });
+  return Array.from(byProduct)
+    .map(([productId, machines]) => {
+      const product = products.find((p) => p.id === productId);
+      return `${product ? product.name : productId} ${machines.join("・")}`;
+    })
+    .join("、");
+}
+
+// 「担当別」タブで、担当者全員に同じ形式で付ける直の表示。
+// tag は名前の横に出す短い表示、detail はその下に出す「どの直にどの機械か」の説明。
+//   1直・2直とも … 両方の直で同じNC機を担当（「担当する直」を選ばなかった場合も含む）
+//   1直のみ／2直のみ … 片方の直だけ担当
+//   1直・2直で担当が違う … 直によって担当NC機が違う
+function staffShiftSummary(staff) {
+  const [first, second] = SHIFT_NAMES.map((shift) => staffMachinesForShift(staff, shift));
+  const keyOf = (list) => list.map((x) => `${x.productId}::${x.machine}`).sort().join("|");
+  if (!first.length && !second.length) {
+    return { kind: "none", tag: "担当NC機が未設定", detail: "" };
+  }
+  if (keyOf(first) === keyOf(second)) {
+    return { kind: "both", tag: `${SHIFT_NAMES[0]}・${SHIFT_NAMES[1]}とも`, detail: describeMachineList(first) };
+  }
+  if (!second.length) {
+    return { kind: "one", tag: `${SHIFT_NAMES[0]}のみ`, detail: describeMachineList(first) };
+  }
+  if (!first.length) {
+    return { kind: "one", tag: `${SHIFT_NAMES[1]}のみ`, detail: describeMachineList(second) };
+  }
+  return {
+    kind: "split",
+    tag: `${SHIFT_NAMES[0]}・${SHIFT_NAMES[1]}で担当が違う`,
+    detail: `${SHIFT_NAMES[0]}: ${describeMachineList(first)}　${SHIFT_NAMES[1]}: ${describeMachineList(second)}`,
+  };
 }
 
 function renderWhoamiBar(myStaff) {
@@ -370,17 +415,21 @@ function renderStaffSummary() {
 
   container.innerHTML = summaries
     .map(
-      ({ staff, stats }) => `
+      ({ staff, stats }) => {
+        const info = staffShiftSummary(staff);
+        return `
       <div class="staff-summary-card" data-staff-id="${escapeHtml(staff.id)}">
-        <div class="staff-summary-name">👤 ${escapeHtml(staff.name)}${
-          staffShiftTag(staff) ? ` <span class="shift-tag">${escapeHtml(staffShiftTag(staff))}</span>` : ""
-        }</div>
+        <div class="staff-summary-info">
+          <div class="staff-summary-name">👤 ${escapeHtml(staff.name)} <span class="shift-tag ${info.kind}">${escapeHtml(info.tag)}</span></div>
+          ${info.detail ? `<div class="staff-summary-detail">${escapeHtml(info.detail)}</div>` : ""}
+        </div>
         <div class="staff-summary-counts">
           <button type="button" class="count-chip danger" data-level="danger">🔴 至急 ${stats.danger}</button>
           <button type="button" class="count-chip warning" data-level="warning">🟡 次シフト ${stats.warning}</button>
           <span class="count-chip ok">🟢 正常 ${stats.ok}</span>
         </div>
-      </div>`
+      </div>`;
+      }
     )
     .join("");
 }

@@ -210,6 +210,17 @@ body {
   border-radius: 999px;
   vertical-align: middle;
 }
+.shift-tag.both { color: var(--text-muted); background: #eef1f4; }
+.shift-tag.split { color: white; background: var(--brand); }
+.shift-tag.none { color: var(--warning); background: var(--warning-bg); }
+.staff-summary-info { flex: 1 1 150px; min-width: 0; }
+.staff-summary-detail {
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
 .assignment-shift-row {
   display: flex;
   align-items: center;

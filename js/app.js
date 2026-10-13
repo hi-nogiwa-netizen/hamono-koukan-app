@@ -180,7 +180,12 @@ function renderWhoamiBar(myStaff) {
 
 // 「表示する直」の切り替えボタン（今の直／1直／2直／全て）。担当分で絞り込んでいるときだけ表示する。
 function renderShiftView(visible) {
-  const wrap = document.getElementById("shift-view-wrap");
+  renderShiftButtons(document.getElementById("shift-view-wrap"), visible);
+}
+
+// 切り替えボタンは優先順位タブと担当別タブの両方にあり、同じ設定を共有する
+function renderShiftButtons(wrap, visible) {
+  if (!wrap) return;
   wrap.classList.toggle("hidden", !visible);
   if (!visible) return;
 
@@ -194,7 +199,7 @@ function renderShiftView(visible) {
   });
 
   const effective = getEffectiveShift();
-  document.getElementById("shift-view-hint").textContent = effective
+  wrap.querySelector(".shift-view-hint").textContent = effective
     ? `${effective}の担当分を表示しています`
     : view === "auto"
       ? "今は稼働時間外のため、1直・2直すべての担当分を表示しています"
@@ -294,7 +299,9 @@ function renderDashboard() {
       const pct = Math.max(0, Math.round(r.ratio * 100));
       const te = r.timeEstimate;
       const shiftFlag = te
-        ? te.withinCurrentShift
+        ? te.secondsToExhaust <= 0
+          ? '<span class="today-flag">⏰ すぐに交換が必要</span>' // 寿命に到達済み（休み中でも「交換不要」と出さない）
+          : te.withinCurrentShift
           ? '<span class="today-flag">⏰ 今のシフト中に交換が必要</span>'
           : te.withinNextShift
             ? '<span class="warn-flag">🟡 次のシフトで交換が必要</span>'
@@ -346,10 +353,16 @@ function renderStaffSummary() {
     return;
   }
 
+  // 直ごとに担当を分けている場合は、優先順位タブと同じ「表示する直」の担当分で数える
+  // （件数を押して開いた一覧と、ここの件数が食い違わないようにするため）
+  const shiftAware = anyShiftSpecificAssignments();
+  const effectiveShift = shiftAware ? getEffectiveShift() : null;
+  renderShiftButtons(document.getElementById("shift-view-wrap-summary"), shiftAware);
+
   const allRows = computePriorityList(products, latestScans);
   const summaries = staffWithAssignments.map((staff) => ({
     staff,
-    stats: summarize(filterRowsForStaff(allRows, staff)),
+    stats: summarize(filterRowsForStaff(allRows, staff, effectiveShift)),
   }));
 
   // 至急交換が多い人ほど上に表示する
@@ -358,23 +371,26 @@ function renderStaffSummary() {
   container.innerHTML = summaries
     .map(
       ({ staff, stats }) => `
-      <button type="button" class="staff-summary-card" data-staff-id="${escapeHtml(staff.id)}">
+      <div class="staff-summary-card" data-staff-id="${escapeHtml(staff.id)}">
         <div class="staff-summary-name">👤 ${escapeHtml(staff.name)}${
           staffShiftTag(staff) ? ` <span class="shift-tag">${escapeHtml(staffShiftTag(staff))}</span>` : ""
         }</div>
         <div class="staff-summary-counts">
-          <span class="count-chip danger">🔴 至急 ${stats.danger}</span>
-          <span class="count-chip warning">🟡 次シフト ${stats.warning}</span>
+          <button type="button" class="count-chip danger" data-level="danger">🔴 至急 ${stats.danger}</button>
+          <button type="button" class="count-chip warning" data-level="warning">🟡 次シフト ${stats.warning}</button>
           <span class="count-chip ok">🟢 正常 ${stats.ok}</span>
         </div>
-      </button>`
+      </div>`
     )
     .join("");
 }
 
 // 「担当別」タブで担当者の名前を押すと、その人の担当分だけに絞った優先順位一覧へジャンプする
-function viewStaffPriorities(staffId) {
+// level を渡すと（"danger" / "warning"）、その担当者の一覧をそのレベルの工具だけに絞って開く。
+// 渡さなければ、その担当者の至急・次のシフトの両方を表示する。
+function viewStaffPriorities(staffId, level = null) {
   viewingStaffId = staffId;
+  levelFilter = FILTERABLE_LEVELS[level] ? level : null;
   switchToView("dashboard");
   renderDashboard();
 }
@@ -383,7 +399,9 @@ function wireStaffSummaryEvents() {
   document.getElementById("staff-summary-list").addEventListener("click", (evt) => {
     const card = evt.target.closest(".staff-summary-card");
     if (!card) return;
-    viewStaffPriorities(card.dataset.staffId);
+    // 🔴至急／🟡次シフトの件数を押したときは、その担当者のそのレベルの工具だけを開く
+    const chip = evt.target.closest(".count-chip[data-level]");
+    viewStaffPriorities(card.dataset.staffId, chip ? chip.dataset.level : null);
   });
 
   document.getElementById("btn-viewing-staff-close").addEventListener("click", () => {
@@ -496,7 +514,7 @@ function wirePriorityListEvents() {
   });
 
   // 「表示する直」の切り替え（今の直／1直／2直／全て）
-  document.getElementById("shift-view-wrap").addEventListener("click", (evt) => {
+  document.addEventListener("click", (evt) => {
     const btn = evt.target.closest(".shift-btn");
     if (!btn) return;
     try {
@@ -505,6 +523,7 @@ function wirePriorityListEvents() {
       /* 保存できなくても、この画面の間は切り替わらないだけ */
     }
     renderDashboard();
+    renderStaffSummary();
   });
 
   // 至急交換／次のシフトで交換のタイルを押すと、その工具だけに絞り込む（もう一度押すと解除）
@@ -1782,6 +1801,10 @@ async function init() {
   setInterval(() => {
     if (!document.getElementById("view-dashboard").classList.contains("hidden")) {
       renderDashboard();
+    }
+    // 「今の直」が切り替わる時刻（21:00・8:00）をまたいでも、担当別の件数が最新になるようにする
+    if (!document.getElementById("view-staff-summary").classList.contains("hidden")) {
+      renderStaffSummary();
     }
   }, 15000);
 

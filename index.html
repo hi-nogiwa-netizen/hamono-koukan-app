@@ -66,7 +66,7 @@
         <button type="button" class="shift-btn" data-shift="2直">2直</button>
         <button type="button" class="shift-btn" data-shift="all">全て</button>
       </div>
-      <p id="shift-view-hint" class="hint-text"></p>
+      <p class="shift-view-hint hint-text"></p>
     </div>
     <div class="summary-row" id="summary-row"></div>
     <div id="priority-list" class="priority-list">
@@ -132,7 +132,17 @@
   <!-- 担当者別まとめ -->
   <section id="view-staff-summary" class="view hidden">
     <h2>担当者別の交換待ち状況</h2>
-    <p class="hint-text">担当製品・NC機が登録されている担当者ごとに、交換待ちの工具数をまとめています。</p>
+    <p class="hint-text">担当製品・NC機が登録されている担当者ごとに、交換待ちの工具数をまとめています。🔴至急・🟡次シフトの件数を押すと、その担当者のその工具だけを一覧で確認できます（名前の部分を押すと両方を表示します）。</p>
+    <div id="shift-view-wrap-summary" class="shift-view-wrap hidden">
+      <span class="shift-view-label">集計する直</span>
+      <div class="shift-btn-group">
+        <button type="button" class="shift-btn" data-shift="auto">今の直</button>
+        <button type="button" class="shift-btn" data-shift="1直">1直</button>
+        <button type="button" class="shift-btn" data-shift="2直">2直</button>
+        <button type="button" class="shift-btn" data-shift="all">全て</button>
+      </div>
+      <p class="shift-view-hint hint-text"></p>
+    </div>
     <div id="staff-summary-list" class="staff-summary-list">
       <p class="empty-hint">読み込み中…</p>
     </div>

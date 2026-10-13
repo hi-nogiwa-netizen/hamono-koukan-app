@@ -490,6 +490,14 @@ button.summary-tile.tappable.active {
   border-radius: 999px;
   color: white;
 }
+/* 件数を押すと、その担当者のそのレベルの工具だけを開く（ボタンとして使う分） */
+button.count-chip {
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+button.count-chip:active { filter: brightness(0.85); }
 .count-chip.danger { background: var(--danger); }
 .count-chip.warning { background: var(--warning); }
 .count-chip.ok { background: var(--ok); }

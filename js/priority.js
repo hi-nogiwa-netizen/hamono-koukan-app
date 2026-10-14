@@ -61,7 +61,7 @@ export function readingTime(scan, toolNo) {
   return typeof t === "number" ? t : scan.capturedAt;
 }
 
-// 入力した使用数が自動リセットされる日時（1直の入力はその日の18:00、2直の入力は翌朝8:00。
+// 入力した使用数が自動リセットされる日時（1直の入力はその日の18:00、2直の入力は翌朝7:00。
 // 詳細は schedule.js の nextResetTime）。この時刻を過ぎた使用数は、リセット（＝データなし）される。
 export function readingExpiresAt(enteredAt) {
   return typeof enteredAt === "number" ? nextResetTime(new Date(enteredAt)) : null;
@@ -115,7 +115,7 @@ export function computePriorityList(products, latestScans, now = new Date()) {
         const count = scan.readings ? scan.readings[tool.no] : undefined;
         if (count === undefined || count === null || count === "") continue;
 
-        // 自動リセットの時刻（1直の入力は18:00、2直の入力は翌朝8:00）を過ぎた使用数は、リセット（＝データなし）にする。
+        // 自動リセットの時刻（1直の入力は18:00、2直の入力は翌朝7:00）を過ぎた使用数は、リセット（＝データなし）にする。
         // 全工具に数字を入れる人の「交換不要な工具の数値」や、「交換した」の押し忘れが
         // いつまでも残らないようにするため。
         const enteredAt = readingTime(scan, tool.no);

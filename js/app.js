@@ -316,7 +316,7 @@ function renderDashboard() {
     listEl.innerHTML =
       isFiltered && allRows.length
         ? `<p class="empty-hint">${escapeHtml(emptyFilteredMessage)}</p>`
-        : '<p class="empty-hint">現在有効な記録がありません。「入力」タブから使用数を入力してください。（数値は、1直の入力ならその日の18:00、2直の入力なら翌朝8:00に自動でリセットされます）</p>';
+        : '<p class="empty-hint">現在有効な記録がありません。「入力」タブから使用数を入力してください。（数値は、1直の入力ならその日の18:00、2直の入力なら翌朝7:00に自動でリセットされます）</p>';
     return;
   }
 
@@ -381,7 +381,7 @@ function renderDashboard() {
           : `<div class="time-estimate">⏱ 残り約${escapeHtml(formatDuration(te.secondsToExhaust))}（目安 ${escapeHtml(formatDateTime(te.exhaustAt))}）</div>`
         : '<div class="time-estimate time-unknown">⏱ 残り時間：不明（このNC機はサイクルタイム未設定）</div>';
       const assignedLine = assigneeLineHtml(r.productId, r.machine);
-      // いつ・誰が入力した数値か、いつ自動リセットされるか（1直の入力は18:00、2直の入力は翌朝8:00に消える）
+      // いつ・誰が入力した数値か、いつ自動リセットされるか（1直の入力は18:00、2直の入力は翌朝7:00に消える）
       const enteredLine =
         typeof r.capturedAt === "number" && r.expiresAt
           ? `<div class="entered-line">🕒 入力 ${escapeHtml(formatDateTime(new Date(r.capturedAt)))}${
@@ -868,7 +868,7 @@ function buildEntryTable(machineFilter) {
           const prevScan = latestScans.get(`${product.id}::${machine}`);
           const prevVal = prevScan && prevScan.readings ? prevScan.readings[tool.no] : undefined;
           const enteredAt = readingTime(prevScan, tool.no);
-          // 自動リセットの時刻（18:00／翌朝8:00）を過ぎた数値は前回の値として表示しない（空欄）
+          // 自動リセットの時刻（18:00／翌朝7:00）を過ぎた数値は前回の値として表示しない（空欄）
           const hasPrev = prevVal !== undefined && prevVal !== null && prevVal !== "" && !isReadingExpired(enteredAt);
           const initialValue = hasPrev ? String(prevVal) : "";
           // 変更しなかった欄は、元の入力時刻を引き継いで保存する（data-time）

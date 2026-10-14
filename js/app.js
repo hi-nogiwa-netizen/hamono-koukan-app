@@ -316,7 +316,7 @@ function renderDashboard() {
     listEl.innerHTML =
       isFiltered && allRows.length
         ? `<p class="empty-hint">${escapeHtml(emptyFilteredMessage)}</p>`
-        : '<p class="empty-hint">現在有効な記録がありません。「入力」タブから使用数を入力してください。（入力から次の直が終わった数値は自動でリセットされます）</p>';
+        : '<p class="empty-hint">現在有効な記録がありません。「入力」タブから使用数を入力してください。（数値は、1直の入力ならその日の18:00、2直の入力なら翌朝8:00に自動でリセットされます）</p>';
     return;
   }
 
@@ -381,7 +381,7 @@ function renderDashboard() {
           : `<div class="time-estimate">⏱ 残り約${escapeHtml(formatDuration(te.secondsToExhaust))}（目安 ${escapeHtml(formatDateTime(te.exhaustAt))}）</div>`
         : '<div class="time-estimate time-unknown">⏱ 残り時間：不明（このNC機はサイクルタイム未設定）</div>';
       const assignedLine = assigneeLineHtml(r.productId, r.machine);
-      // いつ・誰が入力した数値か、いつ自動リセットされるか（入力から次の直が終わると消える）
+      // いつ・誰が入力した数値か、いつ自動リセットされるか（1直の入力は18:00、2直の入力は翌朝8:00に消える）
       const enteredLine =
         typeof r.capturedAt === "number" && r.expiresAt
           ? `<div class="entered-line">🕒 入力 ${escapeHtml(formatDateTime(new Date(r.capturedAt)))}${
@@ -550,7 +550,7 @@ function wireExchangeModal() {
     // この工具以外の使用数は、「確認した使用数」と「その入力時刻」をそのまま引き継ぐ。
     // 入力時刻を引き継ぐので、
     //  - 自動カウントアップの起算点が変わらず、他の工具のカウンターが巻き戻って見えることがない
-    //  - 他の工具を交換しても、残りの工具の「入力から次の直で自動リセット」の期限は延びない
+    //  - 他の工具を交換しても、残りの工具の「自動リセット」の期限は延びない
     // 既に期限が切れている（自動リセット済みの）工具は引き継がない。
     const readings = {};
     const readingTimes = {};
@@ -868,7 +868,7 @@ function buildEntryTable(machineFilter) {
           const prevScan = latestScans.get(`${product.id}::${machine}`);
           const prevVal = prevScan && prevScan.readings ? prevScan.readings[tool.no] : undefined;
           const enteredAt = readingTime(prevScan, tool.no);
-          // 入力してから次の直が終わった数値は自動リセット済みなので、前回の値として表示しない（空欄）
+          // 自動リセットの時刻（18:00／翌朝8:00）を過ぎた数値は前回の値として表示しない（空欄）
           const hasPrev = prevVal !== undefined && prevVal !== null && prevVal !== "" && !isReadingExpired(enteredAt);
           const initialValue = hasPrev ? String(prevVal) : "";
           // 変更しなかった欄は、元の入力時刻を引き継いで保存する（data-time）
@@ -928,7 +928,7 @@ function parseCountText(text) {
 // - 同じ（機械・工具No）の欄が複数あるときは、変更した欄を優先する
 //   （変更していない側の古い値で上書きされないようにする）。
 // - 変更していない欄（前回の値のまま）は、元の入力時刻（it.time）を引き継ぐ（timesByMachine）。
-//   同じ機械の他の工具を入力し直しても、触っていない工具の「入力から次の直で自動リセット」の
+//   同じ機械の他の工具を入力し直しても、触っていない工具の「自動リセット」の
 //   期限は延びない。変更した欄（新しく入力した数値）は、今の時刻の入力として扱う。
 function resolveEntryInputs(items) {
   const chosen = new Map();

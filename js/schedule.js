@@ -99,19 +99,22 @@ export function nextOperatingStart(date) {
   return new Date(date);
 }
 
-// date の「次の直」が終わる日時。入力した使用数の有効期限（この時刻を過ぎたら自動リセット）に使う。
-//   稼働中：今のシフトの次のシフト（土曜4:00で終わる金曜2直の次は、休みをはさんで月曜1直）
-//   休み中：次に始まるシフトを「次の直」とする（日曜に入力 → 月曜1直の終わりまで）
-export function nextShiftEnd(date) {
+// 入力した使用数（カウンター）が自動でリセットされる時刻（毎日、昇順で指定）。
+//   8時  … 2直で入力した数値は、翌朝（日付が変わったあとなら当日）の8時にリセット
+//   18時 … 1直で入力した数値は、その日の18時にリセット
+export const RESET_HOURS = [8, 18];
+
+// date に入力した数値が自動リセットされる日時。
+// 毎日の RESET_HOURS（8:00・18:00）のうち、入力時刻の「次に来る時刻」。
+//   例：水10:00に入力 → 水18:00 / 水22:00に入力 → 木8:00 / 木2:00に入力 → 木8:00
+//   1直の終わりぎわ（18:00〜21:00）の入力は、18時を過ぎているので翌朝8時になる。
+export function nextResetTime(date) {
   const d = new Date(date);
-  let nextStart;
-  if (isOperating(d)) {
-    const currentEnd = currentOperatingSegmentEnd(d);
-    nextStart = isOperating(currentEnd) ? currentEnd : nextOperatingStart(currentEnd);
-  } else {
-    nextStart = nextOperatingStart(d);
+  for (const hour of RESET_HOURS) {
+    const t = atTime(d, hour);
+    if (t.getTime() > d.getTime()) return t;
   }
-  return currentOperatingSegmentEnd(nextStart);
+  return atTime(addDays(d, 1), RESET_HOURS[0]);
 }
 
 // 指定した開始日時から「稼働時間で」seconds 秒後の日時を計算する（休みは飛ばす）。

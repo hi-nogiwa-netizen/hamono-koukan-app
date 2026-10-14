@@ -99,6 +99,21 @@ export function nextOperatingStart(date) {
   return new Date(date);
 }
 
+// date の「次の直」が終わる日時。入力した使用数の有効期限（この時刻を過ぎたら自動リセット）に使う。
+//   稼働中：今のシフトの次のシフト（土曜4:00で終わる金曜2直の次は、休みをはさんで月曜1直）
+//   休み中：次に始まるシフトを「次の直」とする（日曜に入力 → 月曜1直の終わりまで）
+export function nextShiftEnd(date) {
+  const d = new Date(date);
+  let nextStart;
+  if (isOperating(d)) {
+    const currentEnd = currentOperatingSegmentEnd(d);
+    nextStart = isOperating(currentEnd) ? currentEnd : nextOperatingStart(currentEnd);
+  } else {
+    nextStart = nextOperatingStart(d);
+  }
+  return currentOperatingSegmentEnd(nextStart);
+}
+
 // 指定した開始日時から「稼働時間で」seconds 秒後の日時を計算する（休みは飛ばす）。
 export function addOperatingSeconds(startDate, seconds) {
   let current = new Date(startDate);

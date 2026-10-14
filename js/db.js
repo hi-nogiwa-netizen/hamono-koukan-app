@@ -182,15 +182,19 @@ export async function deleteStaff(staffId) {
 
 // ---- スキャン結果（入力確認後に保存する使用数記録） ----
 
-export async function submitScan({ productId, machine, capturedBy, readings }) {
+// readingTimes（省略可）: { 工具No: 入力時刻(ms) }。「前回から変えていない工具」の元の入力時刻を
+// 引き継ぐためのもの。書かれていない工具の入力時刻は capturedAt（この記録の保存時刻）になる。
+export async function submitScan({ productId, machine, capturedBy, readings, readingTimes }) {
   const db = getDb();
-  await push(ref(db, "scans"), {
+  const record = {
     productId,
     machine,
     capturedBy: capturedBy || "不明",
     readings,
     capturedAt: serverTimestamp(),
-  });
+  };
+  if (readingTimes && Object.keys(readingTimes).length) record.readingTimes = readingTimes;
+  await push(ref(db, "scans"), record);
 }
 
 function scanEntriesFromSnapshot(snap) {

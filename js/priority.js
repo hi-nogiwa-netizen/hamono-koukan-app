@@ -1,5 +1,11 @@
 import { PRIORITY_THRESHOLDS } from "./masterData.js";
-import { isOperating, currentOperatingSegmentEnd, addOperatingSeconds, operatingSecondsElapsed } from "./schedule.js";
+import {
+  isOperating,
+  currentOperatingSegmentEnd,
+  addOperatingSeconds,
+  operatingSecondsElapsed,
+  nextShiftEnd,
+} from "./schedule.js";
 
 // 残り寿命の割合からレベル判定（danger=至急交換 / warning=次のシフトで交換 / ok=正常）
 export function levelFor(ratio) {
@@ -41,6 +47,28 @@ export function findDuplicateKeys(list, keyFn) {
   return Array.from(count.entries())
     .filter(([, n]) => n > 1)
     .map(([key]) => key);
+}
+
+const SECONDS_PER_DAY = 24 * 60 * 60;
+
+// ---- 入力した使用数の有効期限 ----
+// 工具ごとの使用数を「確認した（入力した）時刻」。scan.readingTimes[工具No] があればそれ、
+// なければ scan.capturedAt。「交換した」や一部だけの入力で作り直された記録でも、変えていない
+// 工具は元の入力時刻を引き継ぐため、他の工具の操作で期限が延びることはない。
+export function readingTime(scan, toolNo) {
+  if (!scan) return undefined;
+  const t = scan.readingTimes ? scan.readingTimes[toolNo] : undefined;
+  return typeof t === "number" ? t : scan.capturedAt;
+}
+
+// 入力時刻から見て「次の直」が終わる日時。ここを過ぎた使用数は自動的にリセット（＝データなし）される。
+export function readingExpiresAt(enteredAt) {
+  return typeof enteredAt === "number" ? nextShiftEnd(new Date(enteredAt)) : null;
+}
+
+export function isReadingExpired(enteredAt, now = new Date()) {
+  const expiresAt = readingExpiresAt(enteredAt);
+  return !!expiresAt && now.getTime() >= expiresAt.getTime();
 }
 
 function machineCycleTimeSec(machine) {
@@ -86,12 +114,18 @@ export function computePriorityList(products, latestScans, now = new Date()) {
         const count = scan.readings ? scan.readings[tool.no] : undefined;
         if (count === undefined || count === null || count === "") continue;
 
+        // 入力してから「次の直」が終わった使用数は自動的にリセット（＝データなし）にする。
+        // 全工具に数字を入れる人の「交換不要な工具の数値」や、「交換した」の押し忘れが
+        // いつまでも残らないようにするため。
+        const enteredAt = readingTime(scan, tool.no);
+        if (isReadingExpired(enteredAt, now)) continue;
+
         const confirmedCount = Number(count);
 
         // サイクルタイムが分かっている機械は、最後に記録した時刻から今までの
         // 「稼働していた時間」をもとに、今どれくらい使われているはずかを推定し、
         // カウンターを自動的に進める（人が入力し直さなくても、時間経過とともに増えていく）。
-        const { numCount, isEstimated } = estimateCurrentCount(confirmedCount, cycleTimeSec, scan.capturedAt, tool, now);
+        const { numCount, isEstimated } = estimateCurrentCount(confirmedCount, cycleTimeSec, enteredAt, tool, now);
 
         const remaining = tool.life - numCount;
         const ratio = tool.life > 0 ? remaining / tool.life : 0;
@@ -141,6 +175,21 @@ export function computePriorityList(products, latestScans, now = new Date()) {
           level = levelFor(ratio);
         }
 
+        // 並び順に使う「寿命に到達するまでの稼働時間（秒）」。短いほど先に交換が必要になる。
+        //   サイクルタイムがある機械：(残りカウンター ÷ 1サイクルのカウント数) × 1サイクルの時間
+        //   サイクルタイムが無い機械：マスタの「1日あたり生産数」から概算（1日=24時間稼働として換算）
+        // 寿命を超えている工具はマイナスの値になる（超えている分が大きいほど先頭に来る）。
+        // 同じ単位の1つの数値にそろえているので、サイクルタイムの有無が混在していても順序が矛盾しない。
+        let sortSeconds = null;
+        let sortBasis = null;
+        if (cycleTimeSec) {
+          sortSeconds = (remaining / (tool.processCount || 1)) * cycleTimeSec;
+          sortBasis = "cycle";
+        } else if (dailyConsumption > 0) {
+          sortSeconds = (remaining / dailyConsumption) * SECONDS_PER_DAY;
+          sortBasis = "daily";
+        }
+
         rows.push({
           productId: product.id,
           productName: product.name,
@@ -158,28 +207,31 @@ export function computePriorityList(products, latestScans, now = new Date()) {
           level,
           willRunOutToday: remainingAfterToday < 0,
           timeEstimate,
-          capturedAt: scan.capturedAt,
+          sortSeconds,
+          sortBasis,
+          capturedAt: enteredAt,
           capturedBy: scan.capturedBy,
+          expiresAt: readingExpiresAt(enteredAt),
         });
       }
     }
   }
 
   // 表示バッジ（level）と番号の並び順が食い違わないよう、まずlevel（危険度）でグループ分けする。
-  // 同じグループ内では、(1)時間の見積もりがある行を先に、(2)見積もりがある同士は早く尽きる順、
-  // (3)見積もりがない同士は割合が低い順、で並べる。
-  // ※ 見積もり(秒)と割合を直接比較すると単位が違うため、順序が矛盾する（AがBより先、BがCより先、
-  //   なのにCがAより先、のような循環）ことがあるので、必ず「見積もりの有無」でグループを分けてから
-  //   同じ単位同士だけを比較するようにしている。
+  // 同じグループ内では、寿命に到達するまでの時間（sortSeconds：サイクルタイム×残りカウンター）が
+  // 短い工具ほど先（1番）に並べる。寿命を超えている工具（マイナス）は、超えている分が大きい順に先頭。
+  // 時間を計算できない工具（サイクルタイムも1日の生産数も未設定）は最後に、残り割合が低い順で並べる。
+  // ※ 秒と割合は単位が違って比較できず順序が循環してしまうため、「時間を計算できる／できない」で
+  //   先にグループ分けし、同じ単位同士だけを比較している。
   const LEVEL_ORDER = { danger: 0, warning: 1, ok: 2 };
   rows.sort((a, b) => {
     const levelDiff = LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level];
     if (levelDiff !== 0) return levelDiff;
-    const aHasEstimate = a.timeEstimate ? 0 : 1;
-    const bHasEstimate = b.timeEstimate ? 0 : 1;
-    if (aHasEstimate !== bHasEstimate) return aHasEstimate - bHasEstimate;
-    if (a.timeEstimate && b.timeEstimate) {
-      return a.timeEstimate.secondsToExhaust - b.timeEstimate.secondsToExhaust;
+    const aHasTime = a.sortSeconds === null ? 1 : 0;
+    const bHasTime = b.sortSeconds === null ? 1 : 0;
+    if (aHasTime !== bHasTime) return aHasTime - bHasTime;
+    if (a.sortSeconds !== null && b.sortSeconds !== null && a.sortSeconds !== b.sortSeconds) {
+      return a.sortSeconds - b.sortSeconds;
     }
     return a.ratio - b.ratio;
   });

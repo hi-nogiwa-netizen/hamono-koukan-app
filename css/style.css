@@ -362,6 +362,11 @@ button.summary-tile.tappable.active {
   margin-top: 3px;
 }
 .time-estimate.time-unknown { opacity: 0.8; }
+.entered-line {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
 .cycle-note {
   margin: 0 0 4px;
   padding: 8px 10px;

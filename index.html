@@ -102,7 +102,7 @@
 
     <div id="capture-step-review" class="capture-step hidden">
       <h2 id="review-step-title">2. 内容を確認・修正して送信</h2>
-      <p id="review-step-hint" class="hint-text">各NC機の欄に現在の使用数を入力してください。前回の値が最初から入っています。変更がない機械はそのままで構いません。</p>
+      <p id="review-step-hint" class="hint-text">各NC機の欄に現在の使用数を入力してください。前回の値が最初から入っています。変更がない機械はそのままで構いません。入力してから次の直が終わった数値は自動でリセットされ、空欄になります。</p>
       <p id="review-dup-warning" class="dup-warning hidden"></p>
       <div class="table-scroll">
         <table id="review-table" class="review-table"></table>
@@ -132,7 +132,7 @@
   <!-- 担当者別まとめ -->
   <section id="view-staff-summary" class="view hidden">
     <h2>担当者別の交換待ち状況</h2>
-    <p class="hint-text">担当製品・NC機が登録されている担当者ごとに、交換待ちの工具数をまとめています。🔴至急・🟡次シフトの件数を押すと、その担当者のその工具だけを一覧で確認できます（名前の部分を押すと両方を表示します）。</p>
+    <p class="hint-text">担当製品・NC機が登録されている担当者ごとに、交換待ちの工具数をまとめています。🔴至急・🟡次シフトの件数を押すと、その担当者のその工具だけを一覧で確認できます（名前の部分を押すと、至急交換の工具を表示します）。</p>
     <div id="shift-view-wrap-summary" class="shift-view-wrap hidden">
       <span class="shift-view-label">集計する直</span>
       <div class="shift-btn-group">

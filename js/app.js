@@ -1,5 +1,12 @@
 import * as db from "./db.js";
-import { computePriorityList, summarize, estimateCurrentCount, uniqueByKey, findDuplicateKeys } from "./priority.js";
+import {
+  computePriorityList,
+  summarize,
+  uniqueByKey,
+  findDuplicateKeys,
+  readingTime,
+  isReadingExpired,
+} from "./priority.js";
 import { formatDuration, formatDateTime, currentShiftName, SHIFT_NAMES } from "./schedule.js";
 
 let products = [];
@@ -8,7 +15,8 @@ let staffList = [];
 let myOnlyToggleInitialized = false;
 // 「担当別」タブから特定の担当者の一覧へジャンプしたときに設定される（ページ内の一時的な状態）
 let viewingStaffId = null;
-// 優先順位タブの上のタイル（至急交換／次のシフトで交換）を押して一覧を絞り込んだ状態。null = 絞り込みなし
+// 優先順位タブの上のタイル（至急交換／次のシフトで交換）で選んだ表示レベル。
+// null = まだ選んでいない（至急交換を優先して表示する。renderDashboard の activeLevel 参照）
 let levelFilter = null;
 const FILTERABLE_LEVELS = {
   danger: "至急交換",
@@ -288,8 +296,14 @@ function renderDashboard() {
 
   const stats = summarize(rows);
 
+  // 一覧には「至急交換」か「次のシフトで交換」のどちらか一方だけを表示する（混ぜて表示しない）。
+  // 上のタイルで選んだ方を表示し、まだ選んでいないときは至急交換を優先する
+  // （至急交換が0件で次のシフトで交換だけがあるときは、そちらを表示する）。
+  const activeLevel = levelFilter || (stats.danger > 0 || stats.warning === 0 ? "danger" : "warning");
+  const otherLevel = activeLevel === "danger" ? "warning" : "danger";
+
   const filterTile = (level) =>
-    `<button type="button" class="summary-tile ${level} tappable${levelFilter === level ? " active" : ""}" data-level="${level}" aria-pressed="${levelFilter === level}">` +
+    `<button type="button" class="summary-tile ${level} tappable${activeLevel === level ? " active" : ""}" data-level="${level}" aria-pressed="${activeLevel === level}">` +
     `<span class="num">${stats[level]}</span><span class="label">${FILTERABLE_LEVELS[level]}</span></button>`;
   document.getElementById("summary-row").innerHTML = `
     ${filterTile("danger")}
@@ -302,7 +316,7 @@ function renderDashboard() {
     listEl.innerHTML =
       isFiltered && allRows.length
         ? `<p class="empty-hint">${escapeHtml(emptyFilteredMessage)}</p>`
-        : '<p class="empty-hint">まだ記録がありません。「入力」タブから使用数を入力してください。</p>';
+        : '<p class="empty-hint">現在有効な記録がありません。「入力」タブから使用数を入力してください。（入力から次の直が終わった数値は自動でリセットされます）</p>';
     return;
   }
 
@@ -318,13 +332,15 @@ function renderDashboard() {
     row.rank = i + 1;
   });
 
-  // タイルで絞り込み中は、そのレベルの工具だけを表示する
-  const displayRows = levelFilter ? needRows.filter((r) => r.level === levelFilter) : needRows;
-  const filterNote = levelFilter
-    ? `<p class="filter-note">「${FILTERABLE_LEVELS[levelFilter]}」の工具だけを表示中（${displayRows.length}件）。もう一度タイルを押すと全て表示します。</p>`
-    : "";
+  // 選ばれているレベル（至急交換／次のシフトで交換）の工具だけを表示する
+  const displayRows = needRows.filter((r) => r.level === activeLevel);
+  const otherCount = stats[otherLevel];
+  const filterNote =
+    `<p class="filter-note">「${FILTERABLE_LEVELS[activeLevel]}」の工具だけを表示中（${displayRows.length}件）。` +
+    `${otherCount > 0 ? `「${FILTERABLE_LEVELS[otherLevel]}」（${otherCount}件）を見るには、上のタイルを押してください。` : ""}` +
+    `<br>並び順：寿命に到達するまでの時間（1サイクルの時間 × 残りカウンター数）が短い順です。</p>`;
   if (!displayRows.length) {
-    listEl.innerHTML = `${filterNote}<p class="empty-hint">「${FILTERABLE_LEVELS[levelFilter]}」の工具はありません。</p>`;
+    listEl.innerHTML = `${filterNote}<p class="empty-hint">「${FILTERABLE_LEVELS[activeLevel]}」の工具はありません。</p>`;
     return;
   }
   // サイクルタイム未設定のNC機が一覧に含まれているときは、どの機械を設定すればよいかを案内する
@@ -334,10 +350,11 @@ function renderDashboard() {
   ).map((r) => `${r.productName} / ${r.machine}`);
   const MAX_LISTED = 5;
   const cycleNote = noCycleMachines.length
-    ? `<p class="cycle-note">⚠ サイクルタイムが未設定のNC機があり、その工具は残り時間を表示できません：` +
+    ? `<p class="cycle-note">⚠ サイクルタイムが未設定のNC機があり、その工具は残り時間を表示できず、` +
+      `並び順は「1日あたり生産数」からの概算になります：` +
       `${escapeHtml(noCycleMachines.slice(0, MAX_LISTED).join("、"))}` +
       `${noCycleMachines.length > MAX_LISTED ? `（ほか${noCycleMachines.length - MAX_LISTED}台）` : ""}` +
-      `。「マスタ」タブ →「製品・工具マスタ」で各NC機のサイクルタイム（秒）を入力すると表示されます。</p>`
+      `。「マスタ」タブ →「製品・工具マスタ」で各NC機のサイクルタイム（秒）を入力すると、正確な残り時間と並び順になります。</p>`
     : "";
   listEl.innerHTML = filterNote + cycleNote + displayRows
     .map((r) => {
@@ -364,6 +381,13 @@ function renderDashboard() {
           : `<div class="time-estimate">⏱ 残り約${escapeHtml(formatDuration(te.secondsToExhaust))}（目安 ${escapeHtml(formatDateTime(te.exhaustAt))}）</div>`
         : '<div class="time-estimate time-unknown">⏱ 残り時間：不明（このNC機はサイクルタイム未設定）</div>';
       const assignedLine = assigneeLineHtml(r.productId, r.machine);
+      // いつ・誰が入力した数値か、いつ自動リセットされるか（入力から次の直が終わると消える）
+      const enteredLine =
+        typeof r.capturedAt === "number" && r.expiresAt
+          ? `<div class="entered-line">🕒 入力 ${escapeHtml(formatDateTime(new Date(r.capturedAt)))}${
+              r.capturedBy ? `（${escapeHtml(r.capturedBy)}）` : ""
+            }／${escapeHtml(formatDateTime(r.expiresAt))} に自動リセット</div>`
+          : "";
       return `
       <div class="priority-card ${r.level}">
         <div class="priority-card-main">
@@ -373,6 +397,7 @@ function renderDashboard() {
             <div class="sub">${escapeHtml(r.productName)} / ${escapeHtml(r.machine)} / ${escapeHtml(r.maker)} ${escapeHtml(r.model)}</div>
             ${assignedLine}
             ${timeLine}
+            ${enteredLine}
             ${shiftFlag}
           </div>
           <div class="metrics">
@@ -435,8 +460,9 @@ function renderStaffSummary() {
 }
 
 // 「担当別」タブで担当者の名前を押すと、その人の担当分だけに絞った優先順位一覧へジャンプする
-// level を渡すと（"danger" / "warning"）、その担当者の一覧をそのレベルの工具だけに絞って開く。
-// 渡さなければ、その担当者の至急・次のシフトの両方を表示する。
+// level を渡すと（"danger" / "warning"）、その担当者の一覧をそのレベルの工具だけで開く。
+// 渡さなければ（名前を押したとき）、至急交換の工具を表示する（至急交換が0件なら次のシフトで交換）。
+// どちらの場合も、至急交換と次のシフトで交換が一覧に混ざることはない。
 function viewStaffPriorities(staffId, level = null) {
   viewingStaffId = staffId;
   levelFilter = FILTERABLE_LEVELS[level] ? level : null;
@@ -520,31 +546,27 @@ function wireExchangeModal() {
     const { productId, machine, toolNo } = pendingExchange;
     const scan = latestScans.get(`${productId}::${machine}`);
     const oldReadings = scan && scan.readings ? scan.readings : {};
-    const product = products.find((p) => p.id === productId);
-    const machineObj = product ? (product.machines || []).find((m) => (typeof m === "string" ? m : m.name) === machine) : null;
-    const cycleTimeSec = machineObj && typeof machineObj !== "string" ? machineObj.cycleTimeSec : null;
 
-    // この工具以外の使用数は、そのまま古い値をコピーすると、新しいscan（記録時刻=今）が
-    // できた瞬間に自動カウントアップの起算点がリセットされ、他の工具のカウンターが
-    // 一瞬巻き戻ってから、また最初から進み始めるように見えてしまう。
-    // そのため、古い値そのものではなく「今の推定値」を新しい基準値として引き継ぐ。
+    // この工具以外の使用数は、「確認した使用数」と「その入力時刻」をそのまま引き継ぐ。
+    // 入力時刻を引き継ぐので、
+    //  - 自動カウントアップの起算点が変わらず、他の工具のカウンターが巻き戻って見えることがない
+    //  - 他の工具を交換しても、残りの工具の「入力から次の直で自動リセット」の期限は延びない
+    // 既に期限が切れている（自動リセット済みの）工具は引き継がない。
     const readings = {};
+    const readingTimes = {};
     Object.keys(oldReadings).forEach((no) => {
       if (no === toolNo) return;
-      const tool = product ? product.tools.find((t) => t.no === no) : null;
-      if (!tool) {
-        readings[no] = oldReadings[no];
-        return;
-      }
-      const { numCount } = estimateCurrentCount(Number(oldReadings[no]), cycleTimeSec, scan.capturedAt, tool);
-      readings[no] = Math.round(numCount);
+      const enteredAt = readingTime(scan, no);
+      if (isReadingExpired(enteredAt)) return;
+      readings[no] = oldReadings[no];
+      if (typeof enteredAt === "number") readingTimes[no] = enteredAt;
     });
-    readings[toolNo] = 0;
+    readings[toolNo] = 0; // 交換した工具だけは今この時刻（保存時刻）の記録になる
 
     const confirmBtn = document.getElementById("exchange-modal-confirm");
     confirmBtn.disabled = true;
     try {
-      await db.submitScan({ productId, machine, capturedBy: name, readings });
+      await db.submitScan({ productId, machine, capturedBy: name, readings, readingTimes });
       showToast(`${toolNo} を交換済みにしました`);
       closeExchangeModal();
     } catch (e) {
@@ -581,7 +603,7 @@ function wirePriorityListEvents() {
     if (!tile) return;
     const level = tile.dataset.level;
     if (!FILTERABLE_LEVELS[level]) return;
-    levelFilter = levelFilter === level ? null : level;
+    levelFilter = level; // 押したタイルの工具だけを表示（どちらか一方は必ず選ばれている）
     renderDashboard();
   });
 }
@@ -845,10 +867,14 @@ function buildEntryTable(machineFilter) {
         .map((machine) => {
           const prevScan = latestScans.get(`${product.id}::${machine}`);
           const prevVal = prevScan && prevScan.readings ? prevScan.readings[tool.no] : undefined;
-          const hasPrev = prevVal !== undefined && prevVal !== null && prevVal !== "";
+          const enteredAt = readingTime(prevScan, tool.no);
+          // 入力してから次の直が終わった数値は自動リセット済みなので、前回の値として表示しない（空欄）
+          const hasPrev = prevVal !== undefined && prevVal !== null && prevVal !== "" && !isReadingExpired(enteredAt);
           const initialValue = hasPrev ? String(prevVal) : "";
+          // 変更しなかった欄は、元の入力時刻を引き継いで保存する（data-time）
+          const timeAttr = hasPrev && typeof enteredAt === "number" ? ` data-time="${enteredAt}"` : "";
           return `<td>
-            <input type="text" inputmode="numeric" data-tool="${escapeHtml(tool.no)}" data-machine="${escapeHtml(machine)}" value="${escapeHtml(initialValue)}" />
+            <input type="text" inputmode="numeric" data-tool="${escapeHtml(tool.no)}" data-machine="${escapeHtml(machine)}"${timeAttr} value="${escapeHtml(initialValue)}" />
           </td>`;
         })
         .join("");
@@ -901,6 +927,9 @@ function parseCountText(text) {
 // - 空欄の工具は、その機械の送信内容から除外され「データなし」扱いになる。
 // - 同じ（機械・工具No）の欄が複数あるときは、変更した欄を優先する
 //   （変更していない側の古い値で上書きされないようにする）。
+// - 変更していない欄（前回の値のまま）は、元の入力時刻（it.time）を引き継ぐ（timesByMachine）。
+//   同じ機械の他の工具を入力し直しても、触っていない工具の「入力から次の直で自動リセット」の
+//   期限は延びない。変更した欄（新しく入力した数値）は、今の時刻の入力として扱う。
 function resolveEntryInputs(items) {
   const chosen = new Map();
   const machinesChanged = new Set();
@@ -910,13 +939,15 @@ function resolveEntryInputs(items) {
     if (changed) machinesChanged.add(it.machine);
     const key = `${it.machine}\u0000${it.tool}`;
     if (!chosen.has(key) || changed) {
-      chosen.set(key, { machine: it.machine, tool: it.tool, value, changed });
+      chosen.set(key, { machine: it.machine, tool: it.tool, value, changed, time: it.time });
     }
   });
 
   const byMachine = {};
+  const timesByMachine = {};
   machinesChanged.forEach((m) => {
     byMachine[m] = {};
+    timesByMachine[m] = {};
   });
   const invalid = [];
   chosen.forEach((c) => {
@@ -928,8 +959,9 @@ function resolveEntryInputs(items) {
       return;
     }
     byMachine[c.machine][c.tool] = n;
+    if (!c.changed && typeof c.time === "number") timesByMachine[c.machine][c.tool] = c.time;
   });
-  return { machinesChanged, byMachine, invalid };
+  return { machinesChanged, byMachine, timesByMachine, invalid };
 }
 
 async function submitReview() {
@@ -937,12 +969,13 @@ async function submitReview() {
   const inputs = Array.from(document.querySelectorAll("#review-table input"));
   inputs.forEach((inp) => inp.classList.remove("input-error"));
 
-  const { machinesChanged, byMachine, invalid } = resolveEntryInputs(
+  const { machinesChanged, byMachine, timesByMachine, invalid } = resolveEntryInputs(
     inputs.map((inp) => ({
       machine: inp.dataset.machine,
       tool: inp.dataset.tool,
       value: inp.value,
       defaultValue: inp.defaultValue,
+      time: inp.dataset.time === undefined ? undefined : Number(inp.dataset.time),
     }))
   );
 
@@ -974,6 +1007,7 @@ async function submitReview() {
         machine,
         capturedBy: capture.capturedBy,
         readings: byMachine[machine],
+        readingTimes: timesByMachine[machine],
       });
     }
     // 何が保存されたかを送信後の画面に表示する（空欄にした分は「データなし」扱いで除外されている）
